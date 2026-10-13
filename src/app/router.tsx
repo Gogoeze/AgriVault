@@ -10,6 +10,9 @@ import PaymentsPage from "@/features/admin/payments/PaymentsPage"
 import SettingsPage from "@/features/admin/settings/SettingsPage"
 import { ProtectedRoute } from "@/shared/components/layout/ProtectedRoute"
 import FarmerDashboardPage from "@/features/farmer/dashboard/DashboardPage"
+import FarmerPaymentsPage from "@/features/farmer/payments/PaymentsPage"
+
+
 export default function AppRouter() {
   return (
     <Routes>
@@ -29,6 +32,7 @@ export default function AppRouter() {
 
         <Route path="/farmer" element={<Navigate to="/farmer/dashboard" replace />} />
         <Route path="/farmer/dashboard" element={<FarmerDashboardPage />} />
+        <Route path="/farmer/payments" element={<FarmerPaymentsPage />} />
       </Route>
     </Routes>
   )

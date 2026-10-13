@@ -1,6 +1,10 @@
 import { NavLink } from "react-router-dom";
 import type { ComponentType, SVGProps } from "react";
 import avatar from "@/shared/assets/avatar.jpg";
+
+
+
+
 export type SidebarUser = { name: string; role: string };
 
 
