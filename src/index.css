@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "./shared/assets/theme.css";
+
+@theme inline {
+  --font-heading: "Sora", sans-serif;
+  --font-sans: "Archivo", sans-serif;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+:root {
+  --background: var(--color-brand-background);
+  --foreground: var(--color-secondary-black);
+  --card: var(--color-secondary-white);
+  --card-foreground: var(--color-secondary-black);
+  --popover: var(--color-secondary-white);
+  --popover-foreground: var(--color-secondary-black);
+  --primary: var(--color-brand-purple-40);
+  --primary-foreground: var(--color-secondary-white);
+  --secondary: var(--color-brand-purple-10);
+  --secondary-foreground: var(--color-brand-purple-50);
+  --muted: var(--color-brand-purple-10);
+  --muted-foreground: color-mix(in srgb, var(--color-secondary-black) 60%, transparent);
+  --accent: var(--color-brand-purple-10);
+  --accent-foreground: var(--color-brand-purple-50);
+  --destructive: var(--color-accent-critical);
+  --border: var(--color-secondary-grey);
+  --input: var(--color-secondary-grey);
+  --ring: var(--color-brand-purple-40);
+  --radius: 0.625rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-normal;
+  }
+  html {
+    @apply font-sans;
+  }
+  h1, h2, h3 {
+  @apply font-heading font-semibold;
+ }
+}
+
+.icon {
+  font-family: "Material Symbols Rounded";
+  font-size: 20px;
+  line-height: 1;
+}
