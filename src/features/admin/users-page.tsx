@@ -7,12 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/field"
 import { DataTable, EmptyState, Pagination, type Column } from "@/components/ui/table"
-import { PAGE_SIZE, useUserDirectory } from "@/features/inventory/queries"
+import { PAGE_SIZE, useUserDirectory, type DirectoryRow } from "@/features/inventory/queries"
 import { kilograms, naira } from "@/lib/format"
-import type { UserDirectoryRow } from "@/types/database"
 
-const columns: Array<Column<UserDirectoryRow>> = [
-  { key: "name", header: "Name", render: (row) => row.full_name },
+const columns: Array<Column<DirectoryRow>> = [
+  { key: "name", header: "Name", render: (row) => row.fullName },
   {
     key: "phone",
     header: "Phone",
@@ -23,14 +22,14 @@ const columns: Array<Column<UserDirectoryRow>> = [
     header: "Unit",
     render: (row) => <span className="mono text-xs">{row.units}</span>,
   },
-  { key: "stored", header: "Stored", numeric: true, render: (row) => kilograms(row.stored_kg) },
+  { key: "stored", header: "Stored", numeric: true, render: (row) => kilograms(row.storedKg) },
   {
     key: "balance",
     header: "Balance",
     numeric: true,
     render: (row) => (
-      <span className={row.balance_kobo > 0 ? "text-critical" : undefined}>
-        {naira(row.balance_kobo)}
+      <span className={row.balanceKobo > 0 ? "text-critical" : undefined}>
+        {naira(row.balanceKobo)}
       </span>
     ),
   },

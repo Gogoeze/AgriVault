@@ -1,115 +1,129 @@
-import type { Session } from "@supabase/supabase-js"
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  updateProfile as updateAuthProfile,
+  type User,
+} from "firebase/auth"
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore"
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 
 import { AuthContext, type AuthState } from "@/features/auth/auth-context"
-import { supabase } from "@/lib/supabase"
-import type { Profile } from "@/types/database"
+import { auth, db, nowIso } from "@/lib/firebase"
+import { COLLECTIONS, type Profile } from "@/types/models"
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  // Firebase mutates the User object in place on reload() rather than handing
+  // back a new one, so this forces a render when verification completes.
+  const [verifiedTick, setVerifiedTick] = useState(0)
 
-  const loadProfile = useCallback(async (userId: string | undefined) => {
-    if (!userId) {
+  const loadProfile = useCallback(async (uid: string | undefined) => {
+    if (!uid) {
       setProfile(null)
       return
     }
-    const { data } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle()
-    setProfile(data ?? null)
+    const snapshot = await getDoc(doc(db, COLLECTIONS.profiles, uid))
+    setProfile(snapshot.exists() ? ({ id: snapshot.id, ...snapshot.data() } as Profile) : null)
   }, [])
 
   useEffect(() => {
-    let active = true
-
-    void supabase.auth.getSession().then(async ({ data }) => {
-      if (!active) return
-      setSession(data.session)
-      await loadProfile(data.session?.user.id)
-      if (active) setLoading(false)
+    return onAuthStateChanged(auth, (next) => {
+      setUser(next)
+      void loadProfile(next?.uid).finally(() => setLoading(false))
     })
-
-    const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
-      if (!active) return
-      setSession(next)
-      void loadProfile(next?.user.id).then(() => {
-        if (active) setLoading(false)
-      })
-    })
-
-    return () => {
-      active = false
-      subscription.subscription.unsubscribe()
-    }
   }, [loadProfile])
 
   const value = useMemo<AuthState>(() => {
     const role = profile?.role ?? null
 
     return {
-      session,
+      user,
       profile,
       loading,
       role,
       isAdmin: role === "admin",
+      emailVerified: Boolean(user?.emailVerified),
 
       async signIn(email, password) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) throw error
+        await signInWithEmailAndPassword(auth, email, password)
       },
 
       async signUp({ email, password, fullName, phone }) {
-        const { data, error } = await supabase.auth.signUp({
+        const credential = await createUserWithEmailAndPassword(auth, email, password)
+
+        await updateAuthProfile(credential.user, { displayName: fullName })
+
+        // The profile document is created here rather than by a trigger, and
+        // the rules refuse any role other than "farmer" on self-signup — an
+        // admin is only ever made by the seed script or by another admin.
+        const newProfile: Omit<Profile, "id"> = {
+          role: "farmer",
+          fullName,
           email,
-          password,
-          options: {
-            // Role never comes from the client for admin. New sign-ups are
-            // farmers, and the database trigger defaults to that regardless of
-            // what is sent here.
-            data: { full_name: fullName, phone: phone ?? null, role: "farmer" },
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-          },
+          phone: phone ?? null,
+          address: null,
+          avatarUrl: null,
+          status: "active",
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+        }
+
+        await setDoc(doc(db, COLLECTIONS.profiles, credential.user.uid), {
+          ...newProfile,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         })
-        if (error) throw error
-        return { needsVerification: !data.session }
+
+        await sendEmailVerification(credential.user, {
+          url: `${window.location.origin}/sign-in`,
+        })
+
+        await loadProfile(credential.user.uid)
+        return { needsVerification: true }
       },
 
-      async verifyOtp(email, token) {
-        const { error } = await supabase.auth.verifyOtp({ email, token, type: "email" })
-        if (error) throw error
+      async resendVerification() {
+        if (!auth.currentUser) throw new Error("Sign in first.")
+        await sendEmailVerification(auth.currentUser, {
+          url: `${window.location.origin}/sign-in`,
+        })
       },
 
-      async resendOtp(email) {
-        const { error } = await supabase.auth.resend({
-          type: "signup",
-          email,
-          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-        })
-        if (error) throw error
+      /** Re-check whether the inbox link has been clicked yet. */
+      async reloadUser() {
+        if (!auth.currentUser) return false
+        await auth.currentUser.reload()
+        setUser(auth.currentUser)
+        setVerifiedTick((tick) => tick + 1)
+        return auth.currentUser.emailVerified
       },
 
       async requestPasswordReset(email) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/reset-password`,
+        await sendPasswordResetEmail(auth, email, {
+          url: `${window.location.origin}/sign-in`,
         })
-        if (error) throw error
-      },
-
-      async updatePassword(password) {
-        const { error } = await supabase.auth.updateUser({ password })
-        if (error) throw error
       },
 
       async refreshProfile() {
-        await loadProfile(session?.user.id)
+        await loadProfile(user?.uid)
       },
 
       async signOut() {
-        await supabase.auth.signOut()
+        await firebaseSignOut(auth)
         setProfile(null)
       },
     }
-  }, [session, profile, loading, loadProfile])
+    // verifiedTick is a deliberate dependency: Firebase mutates the User object
+    // in place on reload(), so nothing else here changes identity when an email
+    // is verified and the memo would otherwise hand back a stale emailVerified.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, profile, loading, verifiedTick, loadProfile])
 
   return <AuthContext value={value}>{children}</AuthContext>
 }

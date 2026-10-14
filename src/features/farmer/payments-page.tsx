@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardBody, CardHeader, Stat } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
 import { DataTable, EmptyState, Pagination, type Column } from "@/components/ui/table"
-import { useProduceTypes, useStorageTariff } from "@/features/facility/queries"
+import { useFacility, useProduceTypes } from "@/features/facility/queries"
+import { useAuth } from "@/features/auth/auth-context"
 import { PAGE_SIZE, useMyPayments } from "@/features/payments/queries"
 import { downloadReceipt } from "@/features/payments/receipt"
 import { date, naira } from "@/lib/format"
-import type { PaymentDetailRow } from "@/types/database"
+import type { Payment } from "@/types/models"
 
 const DURATIONS = [1, 2, 3, 6, 12].map((months) => ({
   value: months,
@@ -25,16 +26,19 @@ const METHODS = [
 ]
 
 export default function FarmerPaymentsPage() {
-  const { data: rateKobo = 0 } = useStorageTariff()
-  const { data: produce = [] } = useProduceTypes()
+  const { profile } = useAuth()
+  const { data: facility } = useFacility()
+  const produce = useProduceTypes()
+
+  const rateKobo = facility?.tariffKoboPerTonneMonth ?? 0
 
   const [quantityKg, setQuantityKg] = useState("2000")
   const [months, setMonths] = useState(2)
-  const [produceId, setProduceId] = useState("")
+  const [produceName, setProduceName] = useState("")
   const [method, setMethod] = useState("transfer")
   const [page, setPage] = useState(1)
 
-  const { data, isLoading } = useMyPayments(page)
+  const { data, isLoading } = useMyPayments(profile?.id, page)
 
   const tonnes = (Number(quantityKg) || 0) / 1000
   const totalKobo = Math.round(tonnes * rateKobo * months)
@@ -45,19 +49,19 @@ export default function FarmerPaymentsPage() {
     return end
   }, [months])
 
-  const outstandingKobo = (data?.rows ?? []).reduce((sum, row) => sum + row.balance_kobo, 0)
-  const paidKobo = (data?.rows ?? []).reduce((sum, row) => sum + row.paid_kobo, 0)
+  const outstandingKobo = (data?.rows ?? []).reduce((sum, row) => sum + row.balanceKobo, 0)
+  const paidKobo = (data?.rows ?? []).reduce((sum, row) => sum + row.paidKobo, 0)
 
-  const columns: Array<Column<PaymentDetailRow>> = [
+  const columns: Array<Column<Payment>> = [
     {
       key: "receipt",
       header: "Receipt",
-      render: (row) => <span className="mono text-xs font-medium">{row.receipt_no}</span>,
+      render: (row) => <span className="mono text-xs font-medium">{row.receiptNo}</span>,
     },
     {
       key: "batch",
       header: "Batch",
-      render: (row) => <span className="mono text-xs">{row.batch_reference ?? "—"}</span>,
+      render: (row) => <span className="mono text-xs">{row.batchReference ?? "—"}</span>,
     },
     {
       key: "basis",
@@ -65,24 +69,24 @@ export default function FarmerPaymentsPage() {
       numeric: true,
       render: (row) => `${row.tonnes.toFixed(1)}t × ${row.months}mo`,
     },
-    { key: "amount", header: "Amount", numeric: true, render: (row) => naira(row.amount_kobo) },
+    { key: "amount", header: "Amount", numeric: true, render: (row) => naira(row.amountKobo) },
     {
       key: "balance",
       header: "Balance",
       numeric: true,
       render: (row) => (
-        <span className={row.balance_kobo > 0 ? "text-critical" : undefined}>
-          {naira(row.balance_kobo)}
+        <span className={row.balanceKobo > 0 ? "text-critical" : undefined}>
+          {naira(row.balanceKobo)}
         </span>
       ),
     },
-    { key: "date", header: "Date", render: (row) => (row.paid_at ? date(row.paid_at) : "—") },
+    { key: "date", header: "Date", render: (row) => (row.paidAt ? date(row.paidAt) : "—") },
     { key: "status", header: "Status", render: (row) => <PaymentBadge status={row.status} /> },
     {
       key: "receiptAction",
       header: "",
       render: (row) =>
-        row.paid_kobo > 0 ? (
+        row.paidKobo > 0 ? (
           <Button
             variant="outline"
             size="sm"
@@ -118,11 +122,11 @@ export default function FarmerPaymentsPage() {
               {(props) => (
                 <Select
                   {...props}
-                  value={produceId}
-                  onChange={(event) => setProduceId(event.target.value)}
+                  value={produceName}
+                  onChange={(event) => setProduceName(event.target.value)}
                   options={[
                     { value: "", label: "Select produce" },
-                    ...produce.map((item) => ({ value: item.id, label: item.name })),
+                    ...produce.map((item) => ({ value: item, label: item })),
                   ]}
                 />
               )}
@@ -181,7 +185,7 @@ export default function FarmerPaymentsPage() {
               <p className="mono pt-1 text-2xl font-semibold text-brand-800">{naira(totalKobo)}</p>
             </div>
 
-            <Button size="lg" block disabled={tonnes <= 0 || !produceId || rateKobo === 0}>
+            <Button size="lg" block disabled={tonnes <= 0 || !produceName || rateKobo === 0}>
               Pay {naira(totalKobo)}
             </Button>
             <p className="text-center text-2xs text-ink-subtle">

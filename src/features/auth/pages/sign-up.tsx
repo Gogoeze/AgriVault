@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { AuthLayout, FormError } from "@/features/auth/auth-layout"
 import { useAuth } from "@/features/auth/auth-context"
-import { toMessage } from "@/lib/supabase"
+import { toMessage } from "@/lib/firebase"
 
 interface FormState {
   firstName: string
@@ -60,24 +60,16 @@ export default function SignUpPage() {
 
     setSubmitting(true)
     try {
-      const { needsVerification } = await signUp({
+      await signUp({
         email: form.email.trim(),
         password: form.password,
         fullName: `${form.firstName.trim()} ${form.lastName.trim()}`,
         phone: form.phone.trim() || undefined,
       })
 
-      await navigate(
-        needsVerification ? `/verify?email=${encodeURIComponent(form.email.trim())}` : "/",
-        { replace: true },
-      )
+      await navigate(`/verify?email=${encodeURIComponent(form.email.trim())}`, { replace: true })
     } catch (cause) {
-      const message = toMessage(cause)
-      setError(
-        /already registered|already exists/i.test(message)
-          ? "An account already uses that email. Sign in instead."
-          : message,
-      )
+      setError(toMessage(cause))
     } finally {
       setSubmitting(false)
     }

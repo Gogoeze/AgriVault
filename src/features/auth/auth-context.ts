@@ -1,7 +1,7 @@
-import type { Session } from "@supabase/supabase-js"
+import type { User } from "firebase/auth"
 import { createContext, use } from "react"
 
-import type { Profile, UserRole } from "@/types/database"
+import type { Profile, UserRole } from "@/types/models"
 
 export interface SignUpInput {
   email: string
@@ -11,18 +11,19 @@ export interface SignUpInput {
 }
 
 export interface AuthState {
-  session: Session | null
+  user: User | null
   profile: Profile | null
-  /** True until the first session check resolves. Route guards wait on it. */
+  /** True until the first auth check resolves. Route guards wait on it. */
   loading: boolean
   role: UserRole | null
   isAdmin: boolean
+  /** Firebase Auth's own flag. Unverified farmers are held at the gate. */
+  emailVerified: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (input: SignUpInput) => Promise<{ needsVerification: boolean }>
-  verifyOtp: (email: string, token: string) => Promise<void>
-  resendOtp: (email: string) => Promise<void>
+  resendVerification: () => Promise<void>
+  reloadUser: () => Promise<boolean>
   requestPasswordReset: (email: string) => Promise<void>
-  updatePassword: (password: string) => Promise<void>
   refreshProfile: () => Promise<void>
   signOut: () => Promise<void>
 }

@@ -10,44 +10,46 @@ import { DataTable, EmptyState, Pagination, type Column } from "@/components/ui/
 import { PAGE_SIZE, useBatches } from "@/features/inventory/queries"
 import { QrTagModal } from "@/features/inventory/qr-tag-modal"
 import { useDecideWithdrawal, useWithdrawals } from "@/features/withdrawals/queries"
-import { dateShort, kilograms } from "@/lib/format"
-import type { BatchDetailRow } from "@/types/database"
+import { useAuth } from "@/features/auth/auth-context"
+import { dateShort, daysUntil, kilograms } from "@/lib/format"
+import type { StorageBatch } from "@/types/models"
 
 export default function AdminInventoryPage() {
+  const { profile } = useAuth()
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
-  const [tagged, setTagged] = useState<BatchDetailRow | null>(null)
+  const [tagged, setTagged] = useState<StorageBatch | null>(null)
 
   const { data, isLoading } = useBatches(search, page)
-  const { data: requests = [], isLoading: requestsLoading } = useWithdrawals("pending", 10)
+  const { data: requests = [], isLoading: requestsLoading } = useWithdrawals("all", 15)
   const decide = useDecideWithdrawal()
 
-  const columns: Array<Column<BatchDetailRow>> = [
+  const columns: Array<Column<StorageBatch>> = [
     {
       key: "reference",
       header: "Storage ID",
       render: (row) => <span className="mono text-xs font-medium">{row.reference}</span>,
     },
-    { key: "farmer", header: "Farmer", render: (row) => row.farmer_name },
-    { key: "produce", header: "Produce", render: (row) => row.produce_name ?? "—" },
+    { key: "farmer", header: "Farmer", render: (row) => row.farmerName },
+    { key: "produce", header: "Produce", render: (row) => row.produce ?? "—" },
     {
       key: "unit",
       header: "Room",
-      render: (row) => <span className="mono text-xs">{row.unit_code}</span>,
+      render: (row) => <span className="mono text-xs">{row.unitCode}</span>,
     },
     {
       key: "weight",
       header: "Weight",
       numeric: true,
-      render: (row) => kilograms(row.available_kg),
+      render: (row) => kilograms(row.availableKg),
     },
-    { key: "in", header: "Date in", render: (row) => dateShort(row.stored_at) },
+    { key: "in", header: "Date in", render: (row) => dateShort(row.storedAt) },
     {
       key: "ends",
       header: "Ends",
       render: (row) => (
-        <span className={row.days_remaining <= 3 ? "text-critical" : undefined}>
-          {dateShort(row.expires_at)}
+        <span className={daysUntil(row.expiresAt) <= 3 ? "text-critical" : undefined}>
+          {dateShort(row.expiresAt)}
         </span>
       ),
     },
@@ -92,30 +94,61 @@ export default function AdminInventoryPage() {
                     className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-0"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">{request.farmer?.full_name ?? "—"}</p>
+                      <p className="text-sm font-medium">{request.farmerName}</p>
                       <p className="mono text-2xs text-ink-subtle">
-                        {request.reference} · {request.batch?.reference ?? "—"} ·{" "}
-                        {kilograms(request.quantity_kg)}
+                        {request.reference} · {request.batchReference} ·{" "}
+                        {kilograms(request.quantityKg)}
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <WithdrawalBadge status={request.status} />
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        loading={decide.isPending}
-                        onClick={() => decide.mutate({ id: request.id, status: "rejected" })}
-                      >
-                        Decline
-                      </Button>
-                      <Button
-                        size="sm"
-                        loading={decide.isPending}
-                        onClick={() => decide.mutate({ id: request.id, status: "approved" })}
-                      >
-                        Approve
-                      </Button>
+                      {request.status === "approved" && (
+                        <Button
+                          size="sm"
+                          loading={decide.isPending}
+                          onClick={() =>
+                            decide.mutate({
+                              request,
+                              status: "collected",
+                              decidedBy: profile?.id ?? "",
+                            })
+                          }
+                        >
+                          Mark collected
+                        </Button>
+                      )}
+                      {request.status === "pending" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            loading={decide.isPending}
+                            onClick={() =>
+                              decide.mutate({
+                                request,
+                                status: "rejected",
+                                decidedBy: profile?.id ?? "",
+                              })
+                            }
+                          >
+                            Decline
+                          </Button>
+                          <Button
+                            size="sm"
+                            loading={decide.isPending}
+                            onClick={() =>
+                              decide.mutate({
+                                request,
+                                status: "approved",
+                                decidedBy: profile?.id ?? "",
+                              })
+                            }
+                          >
+                            Approve
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </li>
                 ))}

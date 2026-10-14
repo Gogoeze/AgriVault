@@ -9,7 +9,6 @@ import SignInPage from "@/features/auth/pages/sign-in"
 import SignUpPage from "@/features/auth/pages/sign-up"
 import VerifyEmailPage from "@/features/auth/pages/verify-email"
 import ForgotPasswordPage from "@/features/auth/pages/forgot-password"
-import ResetPasswordPage from "@/features/auth/pages/reset-password"
 
 /* The application itself is split per route, so a farmer never downloads the
    admin bundle and vice versa. */
@@ -44,9 +43,8 @@ export function AppRouter() {
         <Route path="/sign-up" element={<SignUpPage />} />
         <Route path="/verify" element={<VerifyEmailPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        {/* Supabase returns here after an emailed link; the session lands first. */}
-        <Route path="/auth/callback" element={<Home />} />
+        {/* Firebase hosts the reset and verification handlers itself and sends
+            people back to /sign-in, so there is no callback route to own. */}
 
         <Route element={<RequireAuth />}>
           <Route element={<RequireRole role="admin" />}>

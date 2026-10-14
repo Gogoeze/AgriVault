@@ -9,13 +9,13 @@ import { Icon } from "@/components/ui/icon"
 import {
   useAddProduce,
   useFacility,
-  useFacilitySettings,
   useProduceTypes,
   useSaveFacility,
-  useSaveSettings,
+  useSaveThresholds,
+  useThresholds,
 } from "@/features/facility/queries"
 import { useAuth } from "@/features/auth/auth-context"
-import { toMessage } from "@/lib/supabase"
+import { toMessage } from "@/lib/firebase"
 
 interface FormState {
   facilityName: string
@@ -85,11 +85,11 @@ function validate(form: FormState): string | null {
 export default function AdminSettingsPage() {
   const { profile } = useAuth()
   const { data: facility } = useFacility()
-  const { data: settings } = useFacilitySettings()
-  const { data: produce = [] } = useProduceTypes()
+  const { data: settings } = useThresholds()
+  const produce = useProduceTypes()
 
   const saveFacility = useSaveFacility()
-  const saveSettings = useSaveSettings()
+  const saveSettings = useSaveThresholds()
   const addProduce = useAddProduce()
 
   /** Edits the user has made. Null means "nothing touched yet". */
@@ -105,17 +105,17 @@ export default function AdminSettingsPage() {
     return {
       facilityName: facility.name,
       location: facility.location ?? "",
-      capacityTonnes: String(Number(facility.capacity_kg) / 1000),
-      temperatureMin: String(settings.temperature_min_c),
-      temperatureMax: String(settings.temperature_max_c),
-      humidityMin: String(settings.humidity_min_pct),
-      humidityMax: String(settings.humidity_max_pct),
-      tariffNaira: String(settings.tariff_kobo_per_tonne_month / 100),
-      notifySms: settings.notify_sms,
-      notifyWhatsapp: settings.notify_whatsapp,
-      notifyEmail: settings.notify_email,
-      alertPhone: settings.alert_phone ?? "",
-      alertEmail: settings.alert_email ?? "",
+      capacityTonnes: String(facility.capacityKg / 1000),
+      temperatureMin: String(settings.temperatureMinC),
+      temperatureMax: String(settings.temperatureMaxC),
+      humidityMin: String(settings.humidityMinPct),
+      humidityMax: String(settings.humidityMaxPct),
+      tariffNaira: String(facility.tariffKoboPerTonneMonth / 100),
+      notifySms: settings.notifySms,
+      notifyWhatsapp: settings.notifyWhatsapp,
+      notifyEmail: settings.notifyEmail,
+      alertPhone: settings.alertPhone ?? "",
+      alertEmail: settings.alertEmail ?? "",
     }
   }, [facility, settings])
 
@@ -138,26 +138,26 @@ export default function AdminSettingsPage() {
     if (!facility || !settings) return
 
     try {
+      // The tariff lives on the facility document, not beside the thresholds:
+      // farmers can read the price and must never read the climate settings.
       await saveFacility.mutateAsync({
-        id: facility.id,
         name: form.facilityName.trim(),
         location: form.location.trim() || null,
-        capacity_kg: Number(form.capacityTonnes) * 1000,
+        capacityKg: Number(form.capacityTonnes) * 1000,
+        tariffKoboPerTonneMonth: Math.round(Number(form.tariffNaira) * 100),
       })
 
       await saveSettings.mutateAsync({
-        facility_id: settings.facility_id,
-        temperature_min_c: Number(form.temperatureMin),
-        temperature_max_c: Number(form.temperatureMax),
-        humidity_min_pct: Math.round(Number(form.humidityMin)),
-        humidity_max_pct: Math.round(Number(form.humidityMax)),
-        tariff_kobo_per_tonne_month: Math.round(Number(form.tariffNaira) * 100),
-        notify_sms: form.notifySms,
-        notify_whatsapp: form.notifyWhatsapp,
-        notify_email: form.notifyEmail,
-        alert_phone: form.alertPhone.trim() || null,
-        alert_email: form.alertEmail.trim() || null,
-        updated_by: profile?.id ?? null,
+        temperatureMinC: Number(form.temperatureMin),
+        temperatureMaxC: Number(form.temperatureMax),
+        humidityMinPct: Math.round(Number(form.humidityMin)),
+        humidityMaxPct: Math.round(Number(form.humidityMax)),
+        notifySms: form.notifySms,
+        notifyWhatsapp: form.notifyWhatsapp,
+        notifyEmail: form.notifyEmail,
+        alertPhone: form.alertPhone.trim() || null,
+        alertEmail: form.alertEmail.trim() || null,
+        updatedBy: profile?.id ?? null,
       })
 
       setDraft(null)
@@ -218,10 +218,10 @@ export default function AdminSettingsPage() {
           <div className="flex flex-wrap gap-2">
             {produce.map((item) => (
               <span
-                key={item.id}
+                key={item}
                 className="rounded-md border border-line-strong px-3 py-1 text-xs text-ink"
               >
-                {item.name}
+                {item}
               </span>
             ))}
             {produce.length === 0 && <p className="text-xs text-ink-muted">Nothing listed yet.</p>}
@@ -236,7 +236,7 @@ export default function AdminSettingsPage() {
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" || !newProduce.trim() || !facility) return
                   event.preventDefault()
-                  addProduce.mutate({ facilityId: facility.id, name: newProduce.trim() })
+                  addProduce.mutate({ current: produce, name: newProduce.trim() })
                   setNewProduce("")
                 }}
               />
@@ -248,7 +248,7 @@ export default function AdminSettingsPage() {
               disabled={!newProduce.trim() || !facility}
               onClick={() => {
                 if (!facility) return
-                addProduce.mutate({ facilityId: facility.id, name: newProduce.trim() })
+                addProduce.mutate({ current: produce, name: newProduce.trim() })
                 setNewProduce("")
               }}
             >

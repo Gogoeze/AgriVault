@@ -46,7 +46,7 @@ import type {
   BookingStatus,
   PaymentStatus,
   WithdrawalStatus,
-} from "@/types/database"
+} from "@/types/models"
 
 type Descriptor = { label: string; tone: Tone }
 

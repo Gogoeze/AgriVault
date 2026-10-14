@@ -80,10 +80,10 @@ function Sidebar({
         <div className="border-t border-brand-500 p-3">
           <div className="flex items-center gap-3 rounded-md px-3 py-2">
             <span className="mono flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-400 text-xs font-semibold">
-              {initials(profile?.full_name ?? "?")}
+              {initials(profile?.fullName ?? "?")}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium">{profile?.full_name}</p>
+              <p className="truncate text-xs font-medium">{profile?.fullName}</p>
               <p className="truncate text-2xs text-brand-200 capitalize">{profile?.role}</p>
             </div>
             <button

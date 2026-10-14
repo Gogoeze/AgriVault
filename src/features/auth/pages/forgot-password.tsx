@@ -6,7 +6,7 @@ import { Field, Input } from "@/components/ui/field"
 import { Icon } from "@/components/ui/icon"
 import { AuthLayout, FormError } from "@/features/auth/auth-layout"
 import { useAuth } from "@/features/auth/auth-context"
-import { toMessage } from "@/lib/supabase"
+import { toMessage } from "@/lib/firebase"
 
 export default function ForgotPasswordPage() {
   const { requestPasswordReset } = useAuth()

@@ -3,17 +3,22 @@ node_modules/
 
 # Build output
 dist/
+.vercel/
 *.tsbuildinfo
 
-# Environment
+# Environment — never commit these
 .env
 .env.*
 !.env.example
 
-# Supabase
-supabase/.branches/
-supabase/.temp/
-supabase/.env
+# Service-account keys. Never commit one.
+*serviceAccount*.json
+*firebase-adminsdk*.json
+.firebase/
+firebase-debug.log*
+database-debug.log*
+firestore-debug.log*
+ui-debug.log*
 
 # Editor and OS
 .DS_Store

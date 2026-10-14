@@ -1,5 +1,5 @@
 import { dateTime } from "@/lib/format"
-import type { PaymentDetailRow } from "@/types/database"
+import type { Payment } from "@/types/models"
 
 /** jsPDF's built-in fonts have no ₦ glyph, so the PDF says NGN. */
 const ngn = (kobo: number) => `NGN ${Math.round(kobo / 100).toLocaleString("en-NG")}`
@@ -16,7 +16,7 @@ const METHOD: Record<string, string> = {
  * jsPDF and its canvas dependencies weigh more than the rest of the page put
  * together, so they are fetched only when someone actually asks for a receipt.
  */
-export async function downloadReceipt(payment: PaymentDetailRow) {
+export async function downloadReceipt(payment: Payment) {
   const { jsPDF } = await import("jspdf")
 
   const doc = new jsPDF({ unit: "pt", format: "a5" })
@@ -52,26 +52,26 @@ export async function downloadReceipt(payment: PaymentDetailRow) {
   doc.text("Official record of this storage payment", left, y)
   y += 32
 
-  row("Receipt no.", payment.receipt_no)
-  row("Date", payment.paid_at ? dateTime(payment.paid_at) : "Not yet paid")
+  row("Receipt no.", payment.receiptNo)
+  row("Date", payment.paidAt ? dateTime(payment.paidAt) : "Not yet paid")
   row("Method", payment.method ? (METHOD[payment.method] ?? payment.method) : "—")
-  row("Paid by", payment.farmer_name)
-  row("Phone", payment.farmer_phone ?? "—")
-  row("Batch", payment.batch_reference ?? "—")
-  if (payment.transaction_ref) row("Transaction ref.", payment.transaction_ref)
+  row("Paid by", payment.farmerName)
+  row("Phone", payment.farmerPhone ?? "—")
+  row("Batch", payment.batchReference ?? "—")
+  if (payment.transactionRef) row("Transaction ref.", payment.transactionRef)
 
   rule()
 
   row(
-    `Storage · ${payment.tonnes.toFixed(1)}t x ${payment.months} mo x ${ngn(payment.rate_kobo)}`,
-    ngn(payment.amount_kobo),
+    `Storage · ${payment.tonnes.toFixed(1)}t x ${payment.months} mo x ${ngn(payment.rateKobo)}`,
+    ngn(payment.amountKobo),
   )
-  row("Amount paid", ngn(payment.paid_kobo), true)
-  row("Balance", ngn(payment.balance_kobo))
+  row("Amount paid", ngn(payment.paidKobo), true)
+  row("Balance", ngn(payment.balanceKobo))
 
   y += 8
   doc.setFontSize(8).setTextColor(161, 161, 172)
-  doc.text(`Recorded by ${payment.recorded_by_name ?? "—"}`, left, y)
+  doc.text(`Recorded by ${payment.recordedByName ?? "—"}`, left, y)
 
-  doc.save(`${payment.receipt_no}.pdf`)
+  doc.save(`${payment.receiptNo}.pdf`)
 }

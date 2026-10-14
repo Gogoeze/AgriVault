@@ -10,33 +10,33 @@ import { Modal } from "@/components/ui/modal"
 import { EmptyState } from "@/components/ui/table"
 import { useAuth } from "@/features/auth/auth-context"
 import { useMyBatches } from "@/features/inventory/queries"
-import { useStorageConditions } from "@/features/monitoring/queries"
+import { useStorageConditions } from "@/features/facility/queries"
 import { QrTagModal } from "@/features/inventory/qr-tag-modal"
 import { Icon } from "@/components/ui/icon"
 import { useMyWithdrawals, useRequestWithdrawal } from "@/features/withdrawals/queries"
 import { cn } from "@/lib/cn"
-import { date, dateShort, kilograms, relativeDateTime, tonnes } from "@/lib/format"
-import { toMessage } from "@/lib/supabase"
-import type { BatchDetailRow, StorageConditions } from "@/types/database"
+import { date, dateShort, daysUntil, kilograms, relativeDateTime, tonnes } from "@/lib/format"
+import { toMessage } from "@/lib/firebase"
+import type { ConditionsDoc, StorageBatch } from "@/types/models"
 
 export default function FarmerDashboardPage() {
   const { profile } = useAuth()
 
-  const { data: batches = [], isLoading } = useMyBatches()
-  const { data: withdrawals = [] } = useMyWithdrawals()
+  const { data: batches = [], isLoading } = useMyBatches(profile?.id)
+  const { data: withdrawals = [] } = useMyWithdrawals(profile?.id)
   const { data: conditions } = useStorageConditions(batches.length > 0)
 
-  const [tagged, setTagged] = useState<BatchDetailRow | null>(null)
-  const [withdrawing, setWithdrawing] = useState<BatchDetailRow | null>(null)
+  const [tagged, setTagged] = useState<StorageBatch | null>(null)
+  const [withdrawing, setWithdrawing] = useState<StorageBatch | null>(null)
 
-  const storedKg = batches.reduce((sum, batch) => sum + Number(batch.available_kg), 0)
-  const soonest = batches.reduce<BatchDetailRow | null>(
+  const storedKg = batches.reduce((sum, batch) => sum + Number(batch.availableKg), 0)
+  const soonest = batches.reduce<StorageBatch | null>(
     (earliest, batch) =>
-      !earliest || new Date(batch.expires_at) < new Date(earliest.expires_at) ? batch : earliest,
+      !earliest || new Date(batch.expiresAt) < new Date(earliest.expiresAt) ? batch : earliest,
     null,
   )
 
-  const firstName = profile?.full_name.split(/\s+/)[0] ?? "there"
+  const firstName = profile?.fullName.split(/\s+/)[0] ?? "there"
 
   return (
     <AppShell
@@ -53,12 +53,12 @@ export default function FarmerDashboardPage() {
           label="Next storage ends"
           value={
             soonest
-              ? soonest.days_remaining <= 0
+              ? daysUntil(soonest.expiresAt) <= 0
                 ? "Overdue"
-                : `${soonest.days_remaining} days`
+                : `${daysUntil(soonest.expiresAt)} days`
               : "—"
           }
-          hint={soonest ? dateShort(soonest.expires_at) : undefined}
+          hint={soonest ? dateShort(soonest.expiresAt) : undefined}
           icon="schedule"
         />
       </div>
@@ -85,8 +85,8 @@ export default function FarmerDashboardPage() {
                         <BatchBadge status={batch.status} />
                       </div>
                       <p className="pt-1 text-xs text-ink-muted">
-                        {batch.produce_name ?? "Produce"} · {batch.unit_code} · in{" "}
-                        {dateShort(batch.stored_at)}
+                        {batch.produce ?? "Produce"} · {batch.unitCode} · in{" "}
+                        {dateShort(batch.storedAt)}
                       </p>
                     </div>
 
@@ -102,7 +102,7 @@ export default function FarmerDashboardPage() {
                       <Button
                         size="sm"
                         icon="outbox"
-                        disabled={Number(batch.available_kg) <= 0}
+                        disabled={Number(batch.availableKg) <= 0}
                         onClick={() => setWithdrawing(batch)}
                       >
                         Withdraw
@@ -111,17 +111,21 @@ export default function FarmerDashboardPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-6 pt-4">
-                    <Metric label="Available" value={kilograms(batch.available_kg)} />
-                    <Metric label="Taken in" value={kilograms(batch.intake_kg)} />
+                    <Metric label="Available" value={kilograms(batch.availableKg)} />
+                    <Metric label="Taken in" value={kilograms(batch.intakeKg)} />
                     <Metric
                       label="Ends"
-                      value={date(batch.expires_at)}
-                      tone={batch.days_remaining <= 3 ? "critical" : undefined}
+                      value={date(batch.expiresAt)}
+                      tone={daysUntil(batch.expiresAt) <= 3 ? "critical" : undefined}
                     />
                     <Metric
                       label="Days left"
-                      value={batch.days_remaining <= 0 ? "Overdue" : String(batch.days_remaining)}
-                      tone={batch.days_remaining <= 3 ? "critical" : undefined}
+                      value={
+                        daysUntil(batch.expiresAt) <= 0
+                          ? "Overdue"
+                          : String(daysUntil(batch.expiresAt))
+                      }
+                      tone={daysUntil(batch.expiresAt) <= 3 ? "critical" : undefined}
                     />
                   </div>
 
@@ -129,10 +133,10 @@ export default function FarmerDashboardPage() {
                     <div
                       className={cn(
                         "h-full rounded-full",
-                        batch.days_remaining <= 3 ? "bg-critical" : "bg-brand-600",
+                        daysUntil(batch.expiresAt) <= 3 ? "bg-critical" : "bg-brand-600",
                       )}
                       style={{
-                        width: `${Math.min(100, Math.max(0, (Number(batch.available_kg) / Number(batch.intake_kg)) * 100))}%`,
+                        width: `${Math.min(100, Math.max(0, (Number(batch.availableKg) / Number(batch.intakeKg)) * 100))}%`,
                       }}
                     />
                   </div>
@@ -158,7 +162,7 @@ export default function FarmerDashboardPage() {
                   <div className="min-w-0">
                     <p className="mono text-sm">{request.reference}</p>
                     <p className="mono text-2xs text-ink-subtle">
-                      {request.batch?.reference ?? "—"} · {kilograms(request.quantity_kg)}
+                      {request.batchReference} · {kilograms(request.quantityKg)}
                     </p>
                   </div>
                   <WithdrawalBadge status={request.status} />
@@ -173,6 +177,7 @@ export default function FarmerDashboardPage() {
       <WithdrawalModal
         batch={withdrawing}
         farmerId={profile?.id ?? ""}
+        farmerName={profile?.fullName ?? ""}
         onClose={() => setWithdrawing(null)}
       />
     </AppShell>
@@ -187,7 +192,7 @@ export default function FarmerDashboardPage() {
  * service actually promises is "your produce is being kept properly", so that
  * is what this says — the same wording as the storage-record SMS.
  */
-function ConditionsBanner({ conditions }: { conditions: StorageConditions }) {
+function ConditionsBanner({ conditions }: { conditions: ConditionsDoc }) {
   const look = {
     in_range: {
       tone: "bg-ok-soft text-ok",
@@ -216,9 +221,9 @@ function ConditionsBanner({ conditions }: { conditions: StorageConditions }) {
       <Icon name={look.icon} className="shrink-0 text-base" />
       <div className="min-w-0">
         <p className="text-sm font-medium">{look.text}</p>
-        {conditions.checked_at && (
+        {conditions.checkedAt && (
           <p className="pt-1 text-xs opacity-80">
-            Last checked {relativeDateTime(conditions.checked_at)}
+            Last checked {relativeDateTime(conditions.checkedAt)}
           </p>
         )}
       </div>
@@ -242,10 +247,12 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: "
 function WithdrawalModal({
   batch,
   farmerId,
+  farmerName,
   onClose,
 }: {
-  batch: BatchDetailRow | null
+  batch: StorageBatch | null
   farmerId: string
+  farmerName: string
   onClose: () => void
 }) {
   const request = useRequestWithdrawal()
@@ -256,7 +263,7 @@ function WithdrawalModal({
 
   if (!batch) return null
 
-  const available = Number(batch.available_kg)
+  const available = Number(batch.availableKg)
   const kg = collection === "full" ? available : Number(quantity)
   const valid = kg > 0 && kg <= available
 
@@ -268,7 +275,7 @@ function WithdrawalModal({
 
     setError(null)
     try {
-      await request.mutateAsync({ batchId: batch.id, farmerId, quantityKg: kg })
+      await request.mutateAsync({ batch, farmerId, farmerName, quantityKg: kg })
       setQuantity("")
       setCollection("partial")
       onClose()

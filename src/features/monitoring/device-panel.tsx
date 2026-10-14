@@ -3,7 +3,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Icon } from "@/components/ui/icon"
 import { EmptyState } from "@/components/ui/table"
 import { relativeDateTime } from "@/lib/format"
-import type { Device, FacilitySettings } from "@/types/database"
+import type { Device, ThresholdConfig } from "@/types/models"
 
 /**
  * What the hardware is doing, as last read from Firebase — admin only.
@@ -13,16 +13,13 @@ import type { Device, FacilitySettings } from "@/types/database"
  * disagree about what counts as a problem. That is worth saying out loud
  * rather than leaving someone to discover it during a spoilage.
  */
-type DeviceRow = Device & { unit: { code: string; name: string | null } | null }
-
 export function DevicePanel({
   devices,
   settings,
 }: {
-  devices: DeviceRow[]
-  settings: FacilitySettings | null
+  devices: Device[]
+  settings: ThresholdConfig | null
 }) {
-
   return (
     <Card>
       <CardHeader
@@ -51,20 +48,21 @@ export function DevicePanel({
                           device.online ? "bg-ok-soft text-ok" : "bg-critical-soft text-critical"
                         }`}
                       >
-                        <Icon name={device.online ? "sensors" : "sensors_off"} className="text-base" />
+                        <Icon
+                          name={device.online ? "sensors" : "sensors_off"}
+                          className="text-base"
+                        />
                       </span>
                       <div>
-                        <p className="text-sm font-medium">
-                          {device.unit?.name ?? device.unit?.code ?? "Unassigned room"}
-                        </p>
-                        <p className="mono text-2xs text-ink-subtle">{device.device_id}</p>
+                        <p className="text-sm font-medium">{device.unitCode}</p>
+                        <p className="mono text-2xs text-ink-subtle">{device.deviceId}</p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-3">
                       <span className="mono text-2xs text-ink-subtle">
-                        {device.last_seen_at
-                          ? `Last seen ${relativeDateTime(device.last_seen_at)}`
+                        {device.lastSeenAt
+                          ? `Last seen ${relativeDateTime(device.lastSeenAt)}`
                           : "Never reported"}
                       </span>
                       <Badge tone={device.online ? "ok" : "critical"} dot>
@@ -123,7 +121,7 @@ const range = (low: number | null, high: number | null, unit: string) =>
   low === null || high === null ? "—" : `${low}–${high}${unit}`
 
 /** A sentence naming the disagreement, or null when the two agree. */
-function thresholdDrift(row: DeviceRow, settings: FacilitySettings | null): string | null {
+function thresholdDrift(row: Device, settings: ThresholdConfig | null): string | null {
   const device = row.thresholds
   if (!device || !settings) return null
 
@@ -131,20 +129,20 @@ function thresholdDrift(row: DeviceRow, settings: FacilitySettings | null): stri
   const differs = (a: number | null, b: number) => a !== null && Math.abs(a - b) > 0.01
 
   if (
-    differs(device.lowTempThreshold, Number(settings.temperature_min_c)) ||
-    differs(device.highTempThreshold, Number(settings.temperature_max_c))
+    differs(device.lowTempThreshold, settings.temperatureMinC) ||
+    differs(device.highTempThreshold, settings.temperatureMaxC)
   ) {
     mismatched.push(
-      `temperature (device ${range(device.lowTempThreshold, device.highTempThreshold, "°C")}, app ${settings.temperature_min_c}–${settings.temperature_max_c}°C)`,
+      `temperature (device ${range(device.lowTempThreshold, device.highTempThreshold, "°C")}, app ${settings.temperatureMinC}–${settings.temperatureMaxC}°C)`,
     )
   }
 
   if (
-    differs(device.lowHumThreshold, Number(settings.humidity_min_pct)) ||
-    differs(device.highHumThreshold, Number(settings.humidity_max_pct))
+    differs(device.lowHumThreshold, settings.humidityMinPct) ||
+    differs(device.highHumThreshold, settings.humidityMaxPct)
   ) {
     mismatched.push(
-      `humidity (device ${range(device.lowHumThreshold, device.highHumThreshold, "%")}, app ${settings.humidity_min_pct}–${settings.humidity_max_pct}%)`,
+      `humidity (device ${range(device.lowHumThreshold, device.highHumThreshold, "%")}, app ${settings.humidityMinPct}–${settings.humidityMaxPct}%)`,
     )
   }
 

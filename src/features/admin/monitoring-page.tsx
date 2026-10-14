@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardBody, CardHeader, Stat } from "@/components/ui/card"
 import { Select } from "@/components/ui/field"
 import { DataTable, EmptyState, Pagination, type Column } from "@/components/ui/table"
-import { useDevices, useFacilitySettings, useStorageUnits } from "@/features/facility/queries"
+import { useDevices, useThresholds } from "@/features/facility/queries"
 import { ClimateChart } from "@/features/monitoring/climate-chart"
 import { DevicePanel } from "@/features/monitoring/device-panel"
 import {
@@ -17,7 +17,7 @@ import {
   useReadings,
 } from "@/features/monitoring/queries"
 import { celsius, percent, relativeDateTime } from "@/lib/format"
-import type { SensorReading } from "@/types/database"
+import type { SensorReading } from "@/types/models"
 
 const WINDOWS = [
   { value: 6, label: "Last 6 hours" },
@@ -27,43 +27,40 @@ const WINDOWS = [
 ]
 
 export default function AdminMonitoringPage() {
-  useLiveClimate()
+  useLiveClimate(true)
 
   const [hours, setHours] = useState(24)
   const [page, setPage] = useState(1)
 
-  const { data: settings } = useFacilitySettings()
-  const { data: units = [] } = useStorageUnits()
+  const { data: settings } = useThresholds()
   const { data: devices = [] } = useDevices()
   const { data: latest } = useLatestReading()
   const { data: series = [] } = useReadingSeries(hours)
   const { data: table, isLoading } = useReadings(page)
 
   const tempBand = settings
-    ? { min: Number(settings.temperature_min_c), max: Number(settings.temperature_max_c) }
+    ? { min: settings.temperatureMinC, max: settings.temperatureMaxC }
     : undefined
   const humidityBand = settings
-    ? { min: Number(settings.humidity_min_pct), max: Number(settings.humidity_max_pct) }
+    ? { min: settings.humidityMinPct, max: settings.humidityMaxPct }
     : undefined
 
   const inBand = (value: number, band?: { min: number; max: number }) =>
     !band || (value >= band.min && value <= band.max)
 
-  const unitName = (id: string) => units.find((unit) => unit.id === id)?.code ?? "—"
-
   const columns: Array<Column<SensorReading>> = [
     {
       key: "room",
       header: "Room",
-      render: (row) => <span className="mono text-xs">{unitName(row.unit_id)}</span>,
+      render: (row) => <span className="mono text-xs">{row.unitCode}</span>,
     },
     {
       key: "temperature",
       header: "Temperature",
       numeric: true,
       render: (row) => (
-        <span className={inBand(Number(row.temperature_c), tempBand) ? undefined : "text-critical"}>
-          {celsius(Number(row.temperature_c))}
+        <span className={inBand(row.temperatureC, tempBand) ? undefined : "text-critical"}>
+          {celsius(row.temperatureC)}
         </span>
       ),
     },
@@ -72,10 +69,8 @@ export default function AdminMonitoringPage() {
       header: "Humidity",
       numeric: true,
       render: (row) => (
-        <span
-          className={inBand(Number(row.humidity_pct), humidityBand) ? undefined : "text-critical"}
-        >
-          {percent(Number(row.humidity_pct))}
+        <span className={inBand(row.humidityPct, humidityBand) ? undefined : "text-critical"}>
+          {percent(row.humidityPct)}
         </span>
       ),
     },
@@ -83,16 +78,14 @@ export default function AdminMonitoringPage() {
       key: "battery",
       header: "Battery",
       numeric: true,
-      render: (row) => (row.battery_pct === null ? "—" : percent(Number(row.battery_pct))),
+      render: (row) => (row.batteryPct === null ? "—" : percent(row.batteryPct)),
     },
-    { key: "time", header: "Time", render: (row) => relativeDateTime(row.recorded_at) },
+    { key: "time", header: "Time", render: (row) => relativeDateTime(row.recordedAt) },
     {
       key: "status",
       header: "Status",
       render: (row) => {
-        const ok =
-          inBand(Number(row.temperature_c), tempBand) &&
-          inBand(Number(row.humidity_pct), humidityBand)
+        const ok = inBand(row.temperatureC, tempBand) && inBand(row.humidityPct, humidityBand)
         return (
           <Badge tone={ok ? "ok" : "critical"} dot>
             {ok ? "Good" : "Out of band"}
@@ -121,19 +114,19 @@ export default function AdminMonitoringPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat
           label="Temperature now"
-          value={latest ? celsius(Number(latest.temperature_c)) : "—"}
+          value={latest ? celsius(latest.temperatureC) : "—"}
           hint={tempBand ? `Band ${tempBand.min}–${tempBand.max}°C` : undefined}
           icon="thermostat"
         />
         <Stat
           label="Humidity now"
-          value={latest ? percent(Number(latest.humidity_pct)) : "—"}
+          value={latest ? percent(latest.humidityPct) : "—"}
           hint={humidityBand ? `Band ${humidityBand.min}–${humidityBand.max}%` : undefined}
           icon="humidity_percentage"
         />
         <Stat
           label="Last reading"
-          value={latest ? relativeDateTime(latest.recorded_at) : "—"}
+          value={latest ? relativeDateTime(latest.recordedAt) : "—"}
           hint="Logged automatically"
           icon="schedule"
         />
@@ -170,7 +163,7 @@ export default function AdminMonitoringPage() {
         <DataTable
           columns={columns}
           rows={table?.rows ?? []}
-          rowKey={(row) => String(row.id)}
+          rowKey={(row) => row.id}
           loading={isLoading}
           empty={
             <EmptyState

@@ -1,4 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  collection,
+  doc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  updateDoc,
+  where,
+  writeBatch,
+} from "firebase/firestore"
 import { useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 
@@ -7,9 +19,9 @@ import { EmptyState } from "@/components/ui/table"
 import { useAuth } from "@/features/auth/auth-context"
 import { cn } from "@/lib/cn"
 import { relativeDateTime } from "@/lib/format"
+import { db, fromSnapshot, nowIso } from "@/lib/firebase"
 import { keys } from "@/lib/query-client"
-import { supabase } from "@/lib/supabase"
-import type { Notification, NotificationCategory } from "@/types/database"
+import { COLLECTIONS, type AppNotification, type NotificationCategory } from "@/types/models"
 
 const ICONS: Record<NotificationCategory, string> = {
   alert: "warning",
@@ -26,64 +38,65 @@ export function NotificationsPanel({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { session } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const client = useQueryClient()
 
   const { data: notifications = [] } = useQuery({
     queryKey: keys.notifications,
-    enabled: Boolean(session),
-    queryFn: async (): Promise<Notification[]> => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(30)
-      if (error) throw error
-      return data ?? []
+    enabled: Boolean(user),
+    queryFn: async (): Promise<AppNotification[]> => {
+      const snapshot = await getDocs(
+        query(
+          collection(db, COLLECTIONS.notifications),
+          where("recipientId", "==", user!.uid),
+          orderBy("createdAt", "desc"),
+          limit(30),
+        ),
+      )
+      return snapshot.docs.map((row) => fromSnapshot<AppNotification>(row))
     },
   })
 
-  // The database pushes new rows here, so the bell updates without polling.
+  // Firestore pushes new documents here, so the bell updates without polling.
   useEffect(() => {
-    if (!session) return
-    const channel = supabase
-      .channel("notifications-feed")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notifications" },
-        () => void client.invalidateQueries({ queryKey: keys.notifications }),
-      )
-      .subscribe()
+    if (!user) return
 
-    return () => {
-      void supabase.removeChannel(channel)
-    }
-  }, [session, client])
+    return onSnapshot(
+      query(
+        collection(db, COLLECTIONS.notifications),
+        where("recipientId", "==", user.uid),
+        orderBy("createdAt", "desc"),
+        limit(30),
+      ),
+      () => void client.invalidateQueries({ queryKey: keys.notifications }),
+      (error) => console.warn("Notification listener stopped:", error.message),
+    )
+  }, [user, client])
 
   const markRead = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read_at: new Date().toISOString() })
-        .eq("id", id)
-      if (error) throw error
+      await updateDoc(doc(db, COLLECTIONS.notifications, id), { readAt: nowIso() })
     },
     onSuccess: () => client.invalidateQueries({ queryKey: keys.notifications }),
   })
 
   const markAllRead = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read_at: new Date().toISOString() })
-        .is("read_at", null)
-      if (error) throw error
+      const unreadItems = notifications.filter((item) => !item.readAt)
+      if (unreadItems.length === 0) return
+
+      // Firestore has no "update where", so the writes are batched instead.
+      const batch = writeBatch(db)
+      for (const item of unreadItems) {
+        batch.update(doc(db, COLLECTIONS.notifications, item.id), { readAt: nowIso() })
+      }
+      await batch.commit()
     },
     onSuccess: () => client.invalidateQueries({ queryKey: keys.notifications }),
   })
 
-  const unread = notifications.filter((item) => !item.read_at).length
+  const unread = notifications.filter((item) => !item.readAt).length
 
   return (
     <div className="relative">
@@ -138,7 +151,7 @@ export function NotificationsPanel({
                       <button
                         type="button"
                         onClick={() => {
-                          if (!item.read_at) markRead.mutate(item.id)
+                          if (!item.readAt) markRead.mutate(item.id)
                           if (item.link) {
                             onOpenChange(false)
                             void navigate(item.link)
@@ -146,7 +159,7 @@ export function NotificationsPanel({
                         }}
                         className={cn(
                           "flex w-full items-start gap-3 border-b border-line px-4 py-3 text-left transition-colors last:border-0 hover:bg-neutral-50",
-                          !item.read_at && "bg-brand-50/60",
+                          !item.readAt && "bg-brand-50/60",
                         )}
                       >
                         <span
@@ -165,7 +178,7 @@ export function NotificationsPanel({
                             <span className="block pt-1 text-xs text-ink-muted">{item.body}</span>
                           )}
                           <span className="mono block pt-1 text-2xs text-ink-subtle">
-                            {relativeDateTime(item.created_at)}
+                            {relativeDateTime(item.createdAt)}
                           </span>
                         </span>
                       </button>

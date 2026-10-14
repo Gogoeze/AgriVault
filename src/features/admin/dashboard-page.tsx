@@ -6,24 +6,24 @@ import { SeverityBadge } from "@/components/ui/badge"
 import { Card, CardBody, CardHeader, Stat } from "@/components/ui/card"
 import { Icon } from "@/components/ui/icon"
 import { EmptyState } from "@/components/ui/table"
-import { useDevices, useFacilityOverview, useFacilitySettings } from "@/features/facility/queries"
+import { useDevices, useFacilityOverview, useThresholds } from "@/features/facility/queries"
 import { ClimateChart } from "@/features/monitoring/climate-chart"
 import { useLiveClimate, useOpenAlerts, useReadingSeries } from "@/features/monitoring/queries"
 import { useWithdrawals } from "@/features/withdrawals/queries"
 import { kilograms, percent, relativeDateTime, tonnes } from "@/lib/format"
 
 export default function AdminDashboardPage() {
-  useLiveClimate()
+  useLiveClimate(true)
 
   const { data: overview } = useFacilityOverview()
-  const { data: settings } = useFacilitySettings()
+  const { data: settings } = useThresholds()
   const { data: devices = [] } = useDevices()
   const { data: readings = [] } = useReadingSeries(24)
   const { data: alerts = [], isLoading: alertsLoading } = useOpenAlerts(5)
   const { data: withdrawals = [], isLoading: withdrawalsLoading } = useWithdrawals("pending", 5)
 
-  const capacity = overview?.capacity_kg ?? 0
-  const stored = overview?.stored_kg ?? 0
+  const capacity = overview?.capacityKg ?? 0
+  const stored = overview?.storedKg ?? 0
 
   // A rig that has stopped reporting produces no readings, and no readings
   // produces no alerts — which looks exactly like everything being fine. Say so.
@@ -40,7 +40,7 @@ export default function AdminDashboardPage() {
           <span className="min-w-0">
             <span className="block text-sm font-medium">
               {offline.length === 1
-                ? `${offline[0]!.unit?.code ?? offline[0]!.device_id} is not reporting`
+                ? `${offline[0]!.unitCode} is not reporting`
                 : `${offline.length} cold rooms are not reporting`}
             </span>
             <span className="block pt-1 text-xs opacity-80">
@@ -51,12 +51,12 @@ export default function AdminDashboardPage() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Active farmers" value={String(overview?.active_farmers ?? 0)} icon="group" />
+        <Stat label="Active farmers" value={String(overview?.activeFarmers ?? 0)} icon="group" />
         <Stat label="In storage" value={tonnes(stored)} icon="inventory_2" />
-        <Stat label="Open alerts" value={String(overview?.open_alerts ?? 0)} icon="warning" />
+        <Stat label="Open alerts" value={String(overview?.openAlerts ?? 0)} icon="warning" />
         <Stat
           label="Pending withdrawals"
-          value={String(overview?.pending_withdrawals ?? 0)}
+          value={String(overview?.pendingWithdrawals ?? 0)}
           icon="outbox"
         />
       </div>
@@ -90,8 +90,8 @@ export default function AdminDashboardPage() {
                   band={
                     settings
                       ? {
-                          min: Number(settings.temperature_min_c),
-                          max: Number(settings.temperature_max_c),
+                          min: settings.temperatureMinC,
+                          max: settings.temperatureMaxC,
                         }
                       : undefined
                   }
@@ -130,7 +130,7 @@ export default function AdminDashboardPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm">{alert.title}</p>
                         <p className="mono text-2xs text-ink-subtle">
-                          {relativeDateTime(alert.raised_at)}
+                          {relativeDateTime(alert.raisedAt)}
                         </p>
                       </div>
                       <SeverityBadge level={alert.severity} />
@@ -191,13 +191,11 @@ export default function AdminDashboardPage() {
                       className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-0"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm">{request.farmer?.full_name ?? "—"}</p>
-                        <p className="mono text-2xs text-ink-subtle">
-                          {request.batch?.reference ?? "—"}
-                        </p>
+                        <p className="truncate text-sm">{request.farmerName}</p>
+                        <p className="mono text-2xs text-ink-subtle">{request.batchReference}</p>
                       </div>
                       <span className="mono shrink-0 text-xs font-medium">
-                        {kilograms(request.quantity_kg)}
+                        {kilograms(request.quantityKg)}
                       </span>
                     </li>
                   ))}

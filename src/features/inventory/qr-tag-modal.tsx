@@ -4,10 +4,10 @@ import { useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Modal } from "@/components/ui/modal"
 import { dateShort, kilograms } from "@/lib/format"
-import type { BatchDetailRow } from "@/types/database"
+import type { StorageBatch } from "@/types/models"
 
 export interface QrTagModalProps {
-  batch: BatchDetailRow | null
+  batch: StorageBatch | null
   onClose: () => void
 }
 
@@ -21,11 +21,11 @@ export function QrTagModal({ batch, onClose }: QrTagModalProps) {
 
   const details = [
     { label: "Storage ID", value: batch.reference, mono: true },
-    { label: "Farmer", value: batch.farmer_name },
-    { label: "Produce", value: batch.produce_name ?? "—" },
-    { label: "Weight", value: kilograms(batch.available_kg), mono: true },
-    { label: "Cold room", value: batch.unit_code, mono: true },
-    { label: "Date in", value: dateShort(batch.stored_at) },
+    { label: "Farmer", value: batch.farmerName },
+    { label: "Produce", value: batch.produce ?? "—" },
+    { label: "Weight", value: kilograms(batch.availableKg), mono: true },
+    { label: "Cold room", value: batch.unitCode, mono: true },
+    { label: "Date in", value: dateShort(batch.storedAt) },
   ]
 
   function handlePrint() {
@@ -57,8 +57,8 @@ export function QrTagModal({ batch, onClose }: QrTagModalProps) {
       <body>
         ${svg}
         <div class="ref">${batch.reference}</div>
-        <div class="meta">${batch.farmer_name} · ${batch.produce_name ?? ""}</div>
-        <div class="meta">${kilograms(batch.available_kg)} · ${dateShort(batch.stored_at)}</div>
+        <div class="meta">${batch.farmerName} · ${batch.produce ?? ""}</div>
+        <div class="meta">${kilograms(batch.availableKg)} · ${dateShort(batch.storedAt)}</div>
       </body></html>`)
     doc.close()
 

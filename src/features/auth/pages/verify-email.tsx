@@ -1,37 +1,31 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type ClipboardEvent,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react"
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom"
+import { useEffect, useState } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
+import { Icon } from "@/components/ui/icon"
 import { AuthLayout, FormError } from "@/features/auth/auth-layout"
-import { useAuth } from "@/features/auth/auth-context"
-import { cn } from "@/lib/cn"
-import { toMessage } from "@/lib/supabase"
+import { homeFor, useAuth } from "@/features/auth/auth-context"
+import { toMessage } from "@/lib/firebase"
 
-const LENGTH = 6
 const RESEND_SECONDS = 45
 
+/**
+ * Firebase verifies by emailed link, not by a code typed back into the app, so
+ * there is nothing to enter here. The page waits instead: it re-checks Firebase
+ * every few seconds and moves on by itself the moment the link is clicked, so a
+ * farmer who opens the email on their phone sees this tab advance on its own.
+ */
 export default function VerifyEmailPage() {
   const [params] = useSearchParams()
-  const email = params.get("email") ?? ""
   const navigate = useNavigate()
-  const { verifyOtp, resendOtp } = useAuth()
+  const { user, role, emailVerified, resendVerification, reloadUser, signOut } = useAuth()
 
-  const [digits, setDigits] = useState<string[]>(Array(LENGTH).fill(""))
+  const email = params.get("email") ?? user?.email ?? ""
+
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [cooldown, setCooldown] = useState(0)
-
-  const inputs = useRef<Array<HTMLInputElement | null>>([])
-  const code = digits.join("")
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -39,49 +33,28 @@ export default function VerifyEmailPage() {
     return () => window.clearTimeout(timer)
   }, [cooldown])
 
-  if (!email) return <Navigate to="/sign-up" replace />
+  // Poll, so the tab advances without the person having to come back and press.
+  useEffect(() => {
+    if (!user || emailVerified) return
 
-  function handleChange(index: number, event: ChangeEvent<HTMLInputElement>) {
-    const value = event.target.value.replace(/\D/g, "").slice(-1)
-    setDigits((current) => current.map((digit, i) => (i === index ? value : digit)))
-    setError(null)
-    if (value && index < LENGTH - 1) inputs.current[index + 1]?.focus()
-  }
+    const timer = window.setInterval(() => void reloadUser(), 5000)
+    return () => window.clearInterval(timer)
+  }, [user, emailVerified, reloadUser])
 
-  function handleKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Backspace" && !digits[index] && index > 0) {
-      inputs.current[index - 1]?.focus()
-    }
-  }
+  useEffect(() => {
+    if (emailVerified) void navigate(homeFor(role), { replace: true })
+  }, [emailVerified, role, navigate])
 
-  function handlePaste(event: ClipboardEvent<HTMLInputElement>) {
-    event.preventDefault()
-    const pasted = event.clipboardData.getData("text").replace(/\D/g, "").slice(0, LENGTH)
-    if (!pasted) return
-    setDigits(Array.from({ length: LENGTH }, (_, index) => pasted[index] ?? ""))
-    inputs.current[Math.min(pasted.length, LENGTH - 1)]?.focus()
-  }
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault()
-    if (code.length < LENGTH) return
-
-    setSubmitting(true)
+  async function handleCheck() {
+    setChecking(true)
     setError(null)
     try {
-      await verifyOtp(email, code)
-      await navigate("/", { replace: true })
+      const verified = await reloadUser()
+      if (!verified) setNotice("Not yet — open the link in your email, then try again.")
     } catch (cause) {
-      const message = toMessage(cause)
-      setError(
-        /expired|invalid/i.test(message)
-          ? "That code is wrong or has expired. Ask for a new one."
-          : message,
-      )
-      setDigits(Array(LENGTH).fill(""))
-      inputs.current[0]?.focus()
+      setError(toMessage(cause))
     } finally {
-      setSubmitting(false)
+      setChecking(false)
     }
   }
 
@@ -89,49 +62,44 @@ export default function VerifyEmailPage() {
     setError(null)
     setNotice(null)
     try {
-      await resendOtp(email)
+      await resendVerification()
       setCooldown(RESEND_SECONDS)
-      setNotice("A new code is on its way.")
+      setNotice("A new link is on its way.")
     } catch (cause) {
       setError(toMessage(cause))
     }
   }
 
   return (
-    <AuthLayout title="Check your email" subtitle={`We sent a ${LENGTH}-digit code to ${email}.`}>
-      <form
-        onSubmit={(event) => void handleSubmit(event)}
-        className="flex flex-col items-center gap-6"
-      >
-        <div className="flex gap-2" onPaste={handlePaste}>
-          {digits.map((digit, index) => (
-            <input
-              key={index}
-              ref={(element) => {
-                inputs.current[index] = element
-              }}
-              value={digit}
-              onChange={(event) => handleChange(index, event)}
-              onKeyDown={(event) => handleKeyDown(index, event)}
-              inputMode="numeric"
-              autoComplete={index === 0 ? "one-time-code" : "off"}
-              maxLength={1}
-              aria-label={`Digit ${index + 1}`}
-              className={cn(
-                "mono h-14 w-11 rounded-md border border-line-strong bg-surface text-center text-lg font-semibold text-ink",
-                "focus:border-brand-400 focus:outline-none",
-              )}
-            />
-          ))}
-        </div>
+    <AuthLayout
+      title="Check your email"
+      subtitle={
+        email
+          ? `We sent a verification link to ${email}. Open it and this page will continue on its own.`
+          : "We sent you a verification link. Open it to continue."
+      }
+      footer={
+        <button
+          type="button"
+          onClick={() => void signOut().then(() => navigate("/sign-in", { replace: true }))}
+          className="text-brand-600 hover:underline"
+        >
+          Use a different account
+        </button>
+      }
+    >
+      <div className="flex flex-col items-center gap-6">
+        <span className="flex size-16 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+          <Icon name="mark_email_unread" className="text-2xl" />
+        </span>
 
         <div className="w-full">
           <FormError message={error} />
-          {notice && !error && <p className="text-center text-xs text-ok">{notice}</p>}
+          {notice && !error && <p className="text-center text-xs text-ink-muted">{notice}</p>}
         </div>
 
-        <Button type="submit" size="lg" block loading={submitting} disabled={code.length < LENGTH}>
-          Verify email
+        <Button block size="lg" loading={checking} onClick={() => void handleCheck()}>
+          I have verified — continue
         </Button>
 
         <button
@@ -140,9 +108,14 @@ export default function VerifyEmailPage() {
           disabled={cooldown > 0}
           className="text-xs text-brand-600 hover:underline disabled:text-ink-subtle disabled:no-underline"
         >
-          {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
+          {cooldown > 0 ? `Resend link in ${cooldown}s` : "Resend verification link"}
         </button>
-      </form>
+
+        <p className="text-center text-2xs text-ink-subtle">
+          Not in your inbox? Check spam — the message comes from your facility&apos;s sending
+          address.
+        </p>
+      </div>
     </AuthLayout>
   )
 }

@@ -1,65 +1,129 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  runTransaction,
+  serverTimestamp,
+  where,
+} from "firebase/firestore"
 
+import { batchStatusAfterWithdrawal } from "@/lib/derive"
+import { db, fromSnapshot, nowIso } from "@/lib/firebase"
 import { keys } from "@/lib/query-client"
-import { supabase } from "@/lib/supabase"
-import type { WithdrawalRequest, WithdrawalStatus } from "@/types/database"
+import { nextReference } from "@/lib/references"
+import {
+  COLLECTIONS,
+  type StorageBatch,
+  type WithdrawalRequest,
+  type WithdrawalStatus,
+} from "@/types/models"
 
-export interface WithdrawalWithContext extends WithdrawalRequest {
-  farmer: { full_name: string } | null
-  batch: { reference: string; available_kg: number } | null
-}
-
-const SELECT =
-  "*, farmer:profiles!withdrawal_requests_farmer_id_fkey(full_name), batch:storage_batches(reference, available_kg)"
-
-/** Requests across the facility. Admins see all; the view is filtered by RLS. */
-export function useWithdrawals(status: WithdrawalStatus | "all" = "pending", limit = 20) {
+export function useWithdrawals(status: WithdrawalStatus | "all" = "pending", cap = 25) {
   return useQuery({
     queryKey: keys.withdrawals(status),
-    queryFn: async (): Promise<WithdrawalWithContext[]> => {
-      let query = supabase
-        .from("withdrawal_requests")
-        .select(SELECT)
-        .order("created_at", { ascending: false })
-        .limit(limit)
+    queryFn: async (): Promise<WithdrawalRequest[]> => {
+      const constraints =
+        status === "all"
+          ? [orderBy("createdAt", "desc"), limit(cap)]
+          : [where("status", "==", status), orderBy("createdAt", "desc"), limit(cap)]
 
-      if (status !== "all") query = query.eq("status", status)
-
-      const { data, error } = await query
-      if (error) throw error
-      return (data ?? []) as unknown as WithdrawalWithContext[]
+      const snapshot = await getDocs(
+        query(collection(db, COLLECTIONS.withdrawalRequests), ...constraints),
+      )
+      return snapshot.docs.map((row) => fromSnapshot<WithdrawalRequest>(row))
     },
   })
 }
 
-export function useMyWithdrawals() {
+export function useMyWithdrawals(farmerId: string | undefined) {
   return useQuery({
     queryKey: keys.myWithdrawals,
-    queryFn: async (): Promise<WithdrawalWithContext[]> => {
-      const { data, error } = await supabase
-        .from("withdrawal_requests")
-        .select(SELECT)
-        .order("created_at", { ascending: false })
-        .limit(20)
-      if (error) throw error
-      return (data ?? []) as unknown as WithdrawalWithContext[]
+    enabled: Boolean(farmerId),
+    queryFn: async (): Promise<WithdrawalRequest[]> => {
+      const snapshot = await getDocs(
+        query(
+          collection(db, COLLECTIONS.withdrawalRequests),
+          where("farmerId", "==", farmerId),
+          orderBy("createdAt", "desc"),
+          limit(25),
+        ),
+      )
+      return snapshot.docs.map((row) => fromSnapshot<WithdrawalRequest>(row))
     },
   })
 }
 
+/**
+ * A farmer asks to collect part or all of a batch.
+ *
+ * Postgres checked the request against the batch — including requests already
+ * in flight — with a trigger. That check has to live here now, and it runs
+ * inside a transaction so two requests submitted at the same moment cannot
+ * between them claim more than is in the room.
+ */
 export function useRequestWithdrawal() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: async (input: { batchId: string; farmerId: string; quantityKg: number }) => {
-      const { error } = await supabase.from("withdrawal_requests").insert({
-        batch_id: input.batchId,
-        farmer_id: input.farmerId,
-        quantity_kg: input.quantityKg,
+    mutationFn: async (input: {
+      batch: Pick<StorageBatch, "id" | "reference" | "availableKg">
+      farmerId: string
+      farmerName: string
+      quantityKg: number
+    }) => {
+      if (input.quantityKg <= 0) throw new Error("Enter a quantity greater than zero.")
+
+      // Requests already approved or waiting are claims on the same stock.
+      const inFlight = await getDocs(
+        query(
+          collection(db, COLLECTIONS.withdrawalRequests),
+          where("batchId", "==", input.batch.id),
+          where("status", "in", ["pending", "approved"]),
+        ),
+      )
+
+      const claimed = inFlight.docs.reduce(
+        (sum, row) => sum + ((row.data().quantityKg as number) ?? 0),
+        0,
+      )
+
+      const reference = await nextReference("WD")
+
+      await runTransaction(db, async (tx) => {
+        const batchRef = doc(db, COLLECTIONS.storageBatches, input.batch.id)
+        const snapshot = await tx.get(batchRef)
+        if (!snapshot.exists()) throw new Error("That batch no longer exists.")
+
+        const available = (snapshot.data().availableKg as number) ?? 0
+        const spare = available - claimed
+
+        if (input.quantityKg > spare) {
+          throw new Error(
+            `Only ${Math.floor(spare).toLocaleString("en-NG")} kg is available after requests already in flight.`,
+          )
+        }
+
+        tx.set(doc(collection(db, COLLECTIONS.withdrawalRequests)), {
+          reference,
+          batchId: input.batch.id,
+          batchReference: input.batch.reference,
+          farmerId: input.farmerId,
+          farmerName: input.farmerName,
+          quantityKg: input.quantityKg,
+          status: "pending",
+          note: null,
+          decidedBy: null,
+          decidedAt: null,
+          collectedAt: null,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+        })
       })
-      // The database checks the request against what is actually in the batch,
-      // including anything already in flight, and rejects it if it does not fit.
-      if (error) throw error
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["withdrawals"] })
@@ -68,20 +132,68 @@ export function useRequestWithdrawal() {
   })
 }
 
+/**
+ * An admin approves, declines, or marks a request collected.
+ *
+ * Stock only moves on collection, and it moves inside a transaction: the read
+ * of availableKg and the write that reduces it cannot be separated, so two
+ * collections processed at once cannot drive the room negative.
+ */
 export function useDecideWithdrawal() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: async (input: { id: string; status: WithdrawalStatus; note?: string }) => {
-      const { error } = await supabase
-        .from("withdrawal_requests")
-        .update({
-          status: input.status,
-          note: input.note ?? null,
-          decided_at: new Date().toISOString(),
-        })
-        .eq("id", input.id)
-      if (error) throw error
+    mutationFn: async (input: {
+      request: WithdrawalRequest
+      status: WithdrawalStatus
+      note?: string
+      decidedBy: string
+    }) => {
+      const { request, status, note, decidedBy } = input
+      const requestRef = doc(db, COLLECTIONS.withdrawalRequests, request.id)
+
+      await runTransaction(db, async (tx) => {
+        const patch: Record<string, unknown> = {
+          status,
+          note: note ?? request.note ?? null,
+          decidedBy,
+          decidedAt: request.decidedAt ?? nowIso(),
+          updatedAt: nowIso(),
+        }
+
+        if (status === "collected") {
+          const batchRef = doc(db, COLLECTIONS.storageBatches, request.batchId)
+          const snapshot = await tx.get(batchRef)
+          if (!snapshot.exists()) throw new Error("That batch no longer exists.")
+
+          const available = (snapshot.data().availableKg as number) ?? 0
+          if (available < request.quantityKg) {
+            throw new Error(
+              `Only ${Math.floor(available).toLocaleString("en-NG")} kg is left in ${request.batchReference}.`,
+            )
+          }
+
+          tx.update(batchRef, {
+            availableKg: available - request.quantityKg,
+            status: batchStatusAfterWithdrawal(available, request.quantityKg),
+            updatedAt: nowIso(),
+          })
+
+          patch.collectedAt = nowIso()
+        }
+
+        tx.update(requestRef, patch)
+      })
+
+      await addDoc(collection(db, COLLECTIONS.notifications), {
+        recipientId: request.farmerId,
+        category: "withdrawal",
+        title: `Withdrawal ${request.reference} ${status}`,
+        body: `${Math.round(request.quantityKg).toLocaleString("en-NG")} kg from ${request.batchReference}.`,
+        link: "/farmer/dashboard",
+        readAt: null,
+        createdAt: serverTimestamp(),
+      })
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["withdrawals"] })

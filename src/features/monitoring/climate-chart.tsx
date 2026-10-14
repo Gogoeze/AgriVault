@@ -11,7 +11,7 @@ import {
 } from "recharts"
 
 import { time } from "@/lib/format"
-import type { SensorReading } from "@/types/database"
+import type { SensorReading } from "@/types/models"
 
 /** One brand colour for the primary series, one neutral for the secondary. */
 const BRAND = "#6A3A8C"
@@ -38,8 +38,8 @@ export function ClimateChart({ readings, band, metric, height = 220 }: ClimateCh
   const isTemperature = metric === "temperature"
 
   const data = readings.map((reading) => ({
-    at: time(reading.recorded_at),
-    value: isTemperature ? Number(reading.temperature_c) : Number(reading.humidity_pct),
+    at: time(reading.recordedAt),
+    value: isTemperature ? reading.temperatureC : reading.humidityPct,
   }))
 
   const values = data.map((point) => point.value)

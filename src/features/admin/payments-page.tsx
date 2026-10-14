@@ -18,8 +18,8 @@ import {
 } from "@/features/payments/queries"
 import { downloadReceipt } from "@/features/payments/receipt"
 import { date, naira, toKobo } from "@/lib/format"
-import { toMessage } from "@/lib/supabase"
-import type { PaymentDetailRow, PaymentMethod, PaymentStatus } from "@/types/database"
+import { toMessage } from "@/lib/firebase"
+import type { Payment, PaymentMethod, PaymentStatus } from "@/types/models"
 
 const STATUSES = [
   { value: "all", label: "All statuses" },
@@ -42,7 +42,7 @@ const METHODS = [
   { value: "ussd", label: "USSD" },
 ]
 
-function toCsv(rows: PaymentDetailRow[]) {
+function toCsv(rows: Payment[]) {
   const header = [
     "Receipt",
     "Farmer",
@@ -59,16 +59,16 @@ function toCsv(rows: PaymentDetailRow[]) {
 
   const body = rows.map((row) =>
     [
-      row.receipt_no,
-      row.farmer_name,
-      row.batch_reference ?? "",
+      row.receiptNo,
+      row.farmerName,
+      row.batchReference ?? "",
       row.tonnes,
       row.months,
-      row.amount_kobo / 100,
-      row.paid_kobo / 100,
-      row.balance_kobo / 100,
+      row.amountKobo / 100,
+      row.paidKobo / 100,
+      row.balanceKobo / 100,
       row.method ?? "",
-      row.paid_at ?? "",
+      row.paidAt ?? "",
       row.status,
     ]
       .map((value) => `"${String(value).replace(/"/g, '""')}"`)
@@ -93,22 +93,22 @@ export default function AdminPaymentsPage() {
   const [status, setStatus] = useState<PaymentStatus | "all">("all")
   const [range, setRange] = useState<DateRange>("all")
   const [page, setPage] = useState(1)
-  const [recording, setRecording] = useState<PaymentDetailRow | null>(null)
+  const [recording, setRecording] = useState<Payment | null>(null)
 
   const { data, isLoading } = usePayments({ search, status, range, page })
   const { data: totals } = usePaymentTotals()
 
-  const columns: Array<Column<PaymentDetailRow>> = [
+  const columns: Array<Column<Payment>> = [
     {
       key: "receipt",
       header: "Receipt",
-      render: (row) => <span className="mono text-xs font-medium">{row.receipt_no}</span>,
+      render: (row) => <span className="mono text-xs font-medium">{row.receiptNo}</span>,
     },
-    { key: "farmer", header: "Farmer", render: (row) => row.farmer_name },
+    { key: "farmer", header: "Farmer", render: (row) => row.farmerName },
     {
       key: "batch",
       header: "Batch",
-      render: (row) => <span className="mono text-xs">{row.batch_reference ?? "—"}</span>,
+      render: (row) => <span className="mono text-xs">{row.batchReference ?? "—"}</span>,
     },
     {
       key: "basis",
@@ -116,22 +116,22 @@ export default function AdminPaymentsPage() {
       numeric: true,
       render: (row) => `${row.tonnes.toFixed(1)}t × ${row.months}mo`,
     },
-    { key: "amount", header: "Amount", numeric: true, render: (row) => naira(row.amount_kobo) },
-    { key: "paid", header: "Paid", numeric: true, render: (row) => naira(row.paid_kobo) },
+    { key: "amount", header: "Amount", numeric: true, render: (row) => naira(row.amountKobo) },
+    { key: "paid", header: "Paid", numeric: true, render: (row) => naira(row.paidKobo) },
     {
       key: "balance",
       header: "Balance",
       numeric: true,
       render: (row) => (
-        <span className={row.balance_kobo > 0 ? "text-critical" : undefined}>
-          {naira(row.balance_kobo)}
+        <span className={row.balanceKobo > 0 ? "text-critical" : undefined}>
+          {naira(row.balanceKobo)}
         </span>
       ),
     },
     {
       key: "date",
       header: "Date",
-      render: (row) => (row.paid_at ? date(row.paid_at) : "—"),
+      render: (row) => (row.paidAt ? date(row.paidAt) : "—"),
     },
     { key: "status", header: "Status", render: (row) => <PaymentBadge status={row.status} /> },
     {
@@ -238,6 +238,7 @@ export default function AdminPaymentsPage() {
       <RecordPaymentModal
         payment={recording}
         recordedBy={profile?.id ?? ""}
+        recordedByName={profile?.fullName ?? "—"}
         onClose={() => setRecording(null)}
       />
     </AppShell>
@@ -249,10 +250,12 @@ export default function AdminPaymentsPage() {
 function RecordPaymentModal({
   payment,
   recordedBy,
+  recordedByName,
   onClose,
 }: {
-  payment: PaymentDetailRow | null
+  payment: Payment | null
   recordedBy: string
+  recordedByName: string
   onClose: () => void
 }) {
   const record = useRecordPayment()
@@ -264,24 +267,25 @@ function RecordPaymentModal({
 
   if (!payment) return null
 
-  const outstanding = payment.balance_kobo / 100
+  const outstanding = payment.balanceKobo / 100
   const entered = Number(amount)
   const valid = entered > 0 && entered <= outstanding
 
   async function handleSubmit() {
     if (!payment || !valid) {
-      setError(`Enter an amount between ₦1 and ${naira(payment?.balance_kobo ?? 0)}.`)
+      setError(`Enter an amount between ₦1 and ${naira(payment?.balanceKobo ?? 0)}.`)
       return
     }
 
     setError(null)
     try {
       await record.mutateAsync({
-        id: payment.id,
-        paidKobo: payment.paid_kobo + toKobo(entered),
+        paymentId: payment.id,
+        addKobo: toKobo(entered),
         method,
         transactionRef: reference.trim() || undefined,
         recordedBy,
+        recordedByName,
       })
       setAmount("")
       setReference("")
@@ -295,8 +299,8 @@ function RecordPaymentModal({
     <Modal
       open
       onClose={onClose}
-      title={`Record payment · ${payment.receipt_no}`}
-      description={`${payment.farmer_name} — ${naira(payment.balance_kobo)} outstanding`}
+      title={`Record payment · ${payment.receiptNo}`}
+      description={`${payment.farmerName} — ${naira(payment.balanceKobo)} outstanding`}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
@@ -311,7 +315,7 @@ function RecordPaymentModal({
       <div className="flex flex-col gap-4">
         <Field
           label="Amount received"
-          hint={`Up to ${naira(payment.balance_kobo)}`}
+          hint={`Up to ${naira(payment.balanceKobo)}`}
           error={error ?? undefined}
         >
           {(props) => (

@@ -2,7 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom"
 
 import { Icon } from "@/components/ui/icon"
 import { homeFor, useAuth } from "@/features/auth/auth-context"
-import type { UserRole } from "@/types/database"
+import type { UserRole } from "@/types/models"
 
 function Waiting() {
   return (
@@ -15,11 +15,17 @@ function Waiting() {
 
 /** Everything behind this needs a session. */
 export function RequireAuth() {
-  const { session, loading } = useAuth()
+  const { user, profile, loading, emailVerified } = useAuth()
   const location = useLocation()
 
   if (loading) return <Waiting />
-  if (!session) return <Navigate to="/sign-in" state={{ from: location.pathname }} replace />
+  if (!user) return <Navigate to="/sign-in" state={{ from: location.pathname }} replace />
+
+  // An unverified farmer is held at the gate. Admins are created by the seed
+  // or by another admin, so they are trusted without an inbox round trip.
+  if (!emailVerified && profile?.role !== "admin") {
+    return <Navigate to={`/verify?email=${encodeURIComponent(user.email ?? "")}`} replace />
+  }
 
   return <Outlet />
 }
@@ -40,10 +46,10 @@ export function RequireRole({ role }: { role: UserRole }) {
 
 /** "/" sends people wherever their role belongs. */
 export function Home() {
-  const { session, role, loading } = useAuth()
+  const { user, role, loading } = useAuth()
 
   if (loading) return <Waiting />
-  if (!session) return <Navigate to="/sign-in" replace />
+  if (!user) return <Navigate to="/sign-in" replace />
 
   return <Navigate to={homeFor(role)} replace />
 }

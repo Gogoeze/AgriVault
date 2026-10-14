@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Field, Input } from "@/components/ui/field"
 import { AuthLayout, FormError } from "@/features/auth/auth-layout"
 import { homeFor, useAuth } from "@/features/auth/auth-context"
-import { toMessage } from "@/lib/supabase"
+import { toMessage } from "@/lib/firebase"
 
 export default function SignInPage() {
-  const { signIn, session, role, loading } = useAuth()
+  const { signIn, user, role, loading } = useAuth()
   const location = useLocation()
 
   const [email, setEmail] = useState("")
@@ -16,7 +16,7 @@ export default function SignInPage() {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (!loading && session && role) {
+  if (!loading && user && role) {
     const from = (location.state as { from?: string } | null)?.from
     return <Navigate to={from ?? homeFor(role)} replace />
   }
@@ -35,13 +35,7 @@ export default function SignInPage() {
       await signIn(email.trim(), password)
     } catch (cause) {
       const message = toMessage(cause)
-      setError(
-        /invalid login/i.test(message)
-          ? "That email and password do not match an account."
-          : /not confirmed/i.test(message)
-            ? "Confirm your email first — check your inbox for the code."
-            : message,
-      )
+      setError(message)
     } finally {
       setSubmitting(false)
     }

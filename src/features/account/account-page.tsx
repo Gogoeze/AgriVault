@@ -7,7 +7,10 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Field, Input } from "@/components/ui/field"
 import { Icon } from "@/components/ui/icon"
 import { useAuth } from "@/features/auth/auth-context"
-import { supabase, toMessage } from "@/lib/supabase"
+import { doc, updateDoc } from "firebase/firestore"
+
+import { db, nowIso, toMessage } from "@/lib/firebase"
+import { COLLECTIONS } from "@/types/models"
 
 interface Details {
   fullName: string
@@ -17,12 +20,12 @@ interface Details {
 
 /** Profile and password, for whoever is signed in. Shared by both roles. */
 export default function AccountPage() {
-  const { profile, isAdmin, updatePassword, refreshProfile } = useAuth()
+  const { profile, isAdmin, refreshProfile, requestPasswordReset } = useAuth()
 
   /** Edits the user has made. Null means "showing what the server has". */
   const [draft, setDraft] = useState<Details | null>(null)
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
+  const [sendingReset, setSendingReset] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -32,7 +35,7 @@ export default function AccountPage() {
   // the moment the profile loads without a second render pass.
   const saved_ = useMemo<Details>(
     () => ({
-      fullName: profile?.full_name ?? "",
+      fullName: profile?.fullName ?? "",
       phone: profile?.phone ?? "",
       address: profile?.address ?? "",
     }),
@@ -46,6 +49,20 @@ export default function AccountPage() {
     setSaved(false)
   }
 
+  async function handlePasswordReset() {
+    if (!profile) return
+    setSendingReset(true)
+    setError(null)
+    try {
+      await requestPasswordReset(profile.email)
+      setResetSent(true)
+    } catch (cause) {
+      setError(toMessage(cause))
+    } finally {
+      setSendingReset(false)
+    }
+  }
+
   async function handleSave() {
     if (!profile) return
 
@@ -53,41 +70,18 @@ export default function AccountPage() {
       setError("Your name cannot be empty.")
       return
     }
-    if (password || confirmPassword) {
-      if (password.length < 8) {
-        setError("A new password must be at least 8 characters.")
-        return
-      }
-      if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) {
-        setError("Use upper and lower case letters and at least one number.")
-        return
-      }
-      if (password !== confirmPassword) {
-        setError("Those passwords do not match.")
-        return
-      }
-    }
-
     setError(null)
     setSaving(true)
     try {
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          full_name: fullName.trim(),
-          phone: phone.trim() || null,
-          address: address.trim() || null,
-        })
-        .eq("id", profile.id)
-
-      if (updateError) throw updateError
-
-      if (password) await updatePassword(password)
+      await updateDoc(doc(db, COLLECTIONS.profiles, profile.id), {
+        fullName: fullName.trim(),
+        phone: phone.trim() || null,
+        address: address.trim() || null,
+        updatedAt: nowIso(),
+      })
 
       await refreshProfile()
       setDraft(null)
-      setPassword("")
-      setConfirmPassword("")
       setSaved(true)
     } catch (cause) {
       setError(toMessage(cause))
@@ -147,40 +141,30 @@ export default function AccountPage() {
         <CardHeader
           icon="lock"
           title="Password"
-          description="Leave both fields blank to keep your current password."
+          description="We email you a secure link rather than changing it here."
         />
-        <CardBody className="grid gap-4 sm:grid-cols-2">
-          <Field label="New password" hint="At least 8 characters, with a number and mixed case.">
-            {(props) => (
-              <Input
-                {...props}
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(event) => {
-                  setPassword(event.target.value)
-                  setSaved(false)
-                }}
-              />
-            )}
-          </Field>
-
-          <Field label="Confirm new password">
-            {(props) => (
-              <Input
-                {...props}
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(event) => {
-                  setConfirmPassword(event.target.value)
-                  setSaved(false)
-                }}
-              />
-            )}
-          </Field>
+        <CardBody className="flex flex-wrap items-center justify-between gap-4">
+          <p className="max-w-md text-xs text-ink-muted">
+            For your security the new password is set on a page only you can reach, from a link sent
+            to {profile?.email}. The link expires after an hour.
+          </p>
+          <Button
+            variant="outline"
+            icon="mail"
+            loading={sendingReset}
+            onClick={() => void handlePasswordReset()}
+          >
+            Email me a reset link
+          </Button>
         </CardBody>
       </Card>
+
+      {resetSent && (
+        <p className="flex items-center gap-2 text-xs text-ok">
+          <Icon name="check_circle" className="text-base" />
+          Reset link sent to {profile?.email}.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-center justify-end gap-4">
         {error && (
