@@ -1,5 +1,5 @@
-import Providers from "./providers"
-import AppRouter from "./router"
+import { Providers } from "@/app/providers"
+import { AppRouter } from "@/app/router"
 
 export default function App() {
   return (

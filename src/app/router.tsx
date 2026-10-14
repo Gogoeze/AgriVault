@@ -1,39 +1,75 @@
-import { Routes, Route, Navigate } from "react-router-dom"
-import Login from "@/features/auth/pages/Login"
-import SignUp from "@/features/auth/pages/SignUp"
-import Otp from "@/features/auth/pages/Otp"
-import DashboardPage from "@/features/admin/dashboard/DashboardPage"
-import UsersPage from "@/features/admin/users/UserPage"
-import InventoryPage from "@/features/admin/inventory/InventoryPage"
-import MonitoringPage from "@/features/admin/monitoring/MonitoringPage"
-import PaymentsPage from "@/features/admin/payments/PaymentsPage"
-import SettingsPage from "@/features/admin/settings/SettingsPage"
-import { ProtectedRoute } from "@/shared/components/layout/ProtectedRoute"
-import FarmerDashboardPage from "@/features/farmer/dashboard/DashboardPage"
-import FarmerPaymentsPage from "@/features/farmer/payments/PaymentsPage"
+import { lazy, Suspense } from "react"
+import { Route, Routes } from "react-router-dom"
 
+import { Home, NotFound, RequireAuth, RequireRole } from "@/app/routes/guards"
+import { Icon } from "@/components/ui/icon"
 
-export default function AppRouter() {
+/* Auth screens load eagerly — they are the first thing most visits need. */
+import SignInPage from "@/features/auth/pages/sign-in"
+import SignUpPage from "@/features/auth/pages/sign-up"
+import VerifyEmailPage from "@/features/auth/pages/verify-email"
+import ForgotPasswordPage from "@/features/auth/pages/forgot-password"
+import ResetPasswordPage from "@/features/auth/pages/reset-password"
+
+/* The application itself is split per route, so a farmer never downloads the
+   admin bundle and vice versa. */
+const AdminDashboardPage = lazy(() => import("@/features/admin/dashboard-page"))
+const AdminUsersPage = lazy(() => import("@/features/admin/users-page"))
+const AdminInventoryPage = lazy(() => import("@/features/admin/inventory-page"))
+const AdminMonitoringPage = lazy(() => import("@/features/admin/monitoring-page"))
+const AdminPaymentsPage = lazy(() => import("@/features/admin/payments-page"))
+const AdminSettingsPage = lazy(() => import("@/features/admin/settings-page"))
+
+const FarmerDashboardPage = lazy(() => import("@/features/farmer/dashboard-page"))
+const FarmerPaymentsPage = lazy(() => import("@/features/farmer/payments-page"))
+
+const AccountPage = lazy(() => import("@/features/account/account-page"))
+
+function RouteFallback() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<SignUp />} />
-      <Route path="/verify" element={<Otp />} />
+    <div className="flex min-h-screen items-center justify-center bg-canvas">
+      <Icon name="progress_activity" className="animate-spin text-2xl text-brand-600" />
+      <span className="sr-only">Loading</span>
+    </div>
+  )
+}
 
-      <Route element={<ProtectedRoute />}>
-        <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="/admin/dashboard" element={<DashboardPage />} />
-        <Route path="/admin/users" element={<UsersPage />} />
-        <Route path="/admin/inventory" element={<InventoryPage />} />
-        <Route path="/admin/monitoring" element={<MonitoringPage />} />
-        <Route path="/admin/payments" element={<PaymentsPage />} />
-        <Route path="/admin/settings" element={<SettingsPage />} />
+export function AppRouter() {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route path="/" element={<Home />} />
 
-        <Route path="/farmer" element={<Navigate to="/farmer/dashboard" replace />} />
-        <Route path="/farmer/dashboard" element={<FarmerDashboardPage />} />
-        <Route path="/farmer/payments" element={<FarmerPaymentsPage />} />
-      </Route>
-    </Routes>
+        <Route path="/sign-in" element={<SignInPage />} />
+        <Route path="/sign-up" element={<SignUpPage />} />
+        <Route path="/verify" element={<VerifyEmailPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        {/* Supabase returns here after an emailed link; the session lands first. */}
+        <Route path="/auth/callback" element={<Home />} />
+
+        <Route element={<RequireAuth />}>
+          <Route element={<RequireRole role="admin" />}>
+            <Route path="/admin" element={<AdminDashboardPage />} />
+            <Route path="/admin/dashboard" element={<AdminDashboardPage />} />
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/inventory" element={<AdminInventoryPage />} />
+            <Route path="/admin/monitoring" element={<AdminMonitoringPage />} />
+            <Route path="/admin/payments" element={<AdminPaymentsPage />} />
+            <Route path="/admin/settings" element={<AdminSettingsPage />} />
+            <Route path="/admin/account" element={<AccountPage />} />
+          </Route>
+
+          <Route element={<RequireRole role="farmer" />}>
+            <Route path="/farmer" element={<FarmerDashboardPage />} />
+            <Route path="/farmer/dashboard" element={<FarmerDashboardPage />} />
+            <Route path="/farmer/payments" element={<FarmerPaymentsPage />} />
+            <Route path="/farmer/settings" element={<AccountPage />} />
+          </Route>
+        </Route>
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   )
 }

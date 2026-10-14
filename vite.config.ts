@@ -1,16 +1,29 @@
-import tailwindcss from '@tailwindcss/vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
-import { defineConfig } from 'vite'
-import svgr from "vite-plugin-svgr";
+import path from "node:path"
 
-// https://vite.dev/config/
+import tailwindcss from "@tailwindcss/vite"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
+
 export default defineConfig({
-  plugins: [react(),
-    tailwindcss(),
-    svgr()],
- resolve: {
-   dedupe: ["react", "react-dom"],
-    alias: { "@": path.resolve(__dirname, "./src") }
-   },
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+    alias: { "@": path.resolve(import.meta.dirname, "./src") },
+  },
+  server: {
+    port: 5173,
+  },
+  build: {
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Keep the heavy, rarely-changing libraries in their own chunks.
+        manualChunks(id) {
+          if (id.includes("node_modules/recharts")) return "charts"
+          if (id.includes("node_modules/jspdf")) return "pdf"
+          return undefined
+        },
+      },
+    },
+  },
 })
