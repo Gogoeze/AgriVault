@@ -73,8 +73,33 @@ export type StorageUnit = {
   code: string
   name: string | null
   capacity_kg: number
-  device_id: string | null
   created_at: string
+}
+
+/** The sensor rig in a cold room, and the last thing we heard from it. */
+export type Device = {
+  id: string
+  unit_id: string
+  device_id: string
+  online: boolean
+  last_seen_at: string | null
+  thresholds: DeviceThresholds | null
+  created_at: string
+  updated_at: string
+}
+
+/** The thresholds the rig itself is running, mirrored from Firebase. */
+export type DeviceThresholds = {
+  highTempThreshold: number | null
+  lowTempThreshold: number | null
+  highHumThreshold: number | null
+  lowHumThreshold: number | null
+}
+
+/** What a farmer may learn about conditions — a verdict, never a number. */
+export type StorageConditions = {
+  verdict: "in_range" | "out_of_range" | "stale" | "unknown"
+  checked_at: string | null
 }
 
 export type ProduceType = {
@@ -254,6 +279,12 @@ export type PaymentDetailRow = {
   recorded_by_name: string | null
 }
 
+/** The only slice of facility_settings a farmer can read. */
+export type StorageTariffRow = {
+  facility_id: string
+  tariff_kobo_per_tonne_month: number
+}
+
 export type FacilityOverviewRow = {
   facility_id: string
   facility_name: string
@@ -283,6 +314,7 @@ export type Database = {
       facilities: Table<Facility>
       facility_settings: Table<FacilitySettings>
       storage_units: Table<StorageUnit>
+      devices: Table<Device>
       produce_types: Table<ProduceType>
       bookings: Table<Booking>
       storage_batches: Table<StorageBatch>
@@ -298,9 +330,11 @@ export type Database = {
       v_batch_detail: View<BatchDetailRow>
       v_payment_detail: View<PaymentDetailRow>
       v_facility_overview: View<FacilityOverviewRow>
+      v_storage_tariff: View<StorageTariffRow>
     }
     Functions: {
       is_admin: { Args: Record<string, never>; Returns: boolean }
+      storage_conditions: { Args: Record<string, never>; Returns: StorageConditions[] }
       expire_due_batches: { Args: Record<string, never>; Returns: number }
     }
     Enums: {

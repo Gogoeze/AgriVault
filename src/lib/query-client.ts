@@ -21,7 +21,9 @@ export const keys = {
 
   facility: ["facility"] as const,
   settings: ["facility", "settings"] as const,
+  tariff: ["facility", "tariff"] as const,
   units: ["facility", "units"] as const,
+  devices: ["facility", "devices"] as const,
   produce: ["facility", "produce"] as const,
 
   users: (search: string, page: number) => ["users", { search, page }] as const,
@@ -31,6 +33,7 @@ export const keys = {
   readings: (page: number) => ["readings", { page }] as const,
   readingsSeries: (hours: number) => ["readings", "series", hours] as const,
   latestReading: ["readings", "latest"] as const,
+  conditions: ["conditions"] as const,
 
   alerts: (status: string) => ["alerts", { status }] as const,
   notifications: ["notifications"] as const,

@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import circleBottom from "@/assets/brand/circleBottom.png"
 import circleTop from "@/assets/brand/circleTop.png"
 import { Icon } from "@/components/ui/icon"
+import { Logo } from "@/components/ui/logo"
 
 export interface AuthLayoutProps {
   title: string
@@ -28,9 +29,8 @@ export function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProp
       />
 
       <div className="relative w-full max-w-md rounded-xl border border-line bg-surface p-8 shadow-raised">
-        <div className="flex items-center justify-center gap-2 text-brand-600">
-          <Icon name="inventory_2" filled className="text-xl" />
-          <span className="text-base font-semibold tracking-tight">AgriVault</span>
+        <div className="flex justify-center">
+          <Logo className="h-9" />
         </div>
 
         <h1 className="pt-6 text-center text-lg font-semibold text-ink">{title}</h1>

@@ -10,18 +10,21 @@ import { Modal } from "@/components/ui/modal"
 import { EmptyState } from "@/components/ui/table"
 import { useAuth } from "@/features/auth/auth-context"
 import { useMyBatches } from "@/features/inventory/queries"
+import { useStorageConditions } from "@/features/monitoring/queries"
 import { QrTagModal } from "@/features/inventory/qr-tag-modal"
+import { Icon } from "@/components/ui/icon"
 import { useMyWithdrawals, useRequestWithdrawal } from "@/features/withdrawals/queries"
 import { cn } from "@/lib/cn"
-import { date, dateShort, kilograms, tonnes } from "@/lib/format"
+import { date, dateShort, kilograms, relativeDateTime, tonnes } from "@/lib/format"
 import { toMessage } from "@/lib/supabase"
-import type { BatchDetailRow } from "@/types/database"
+import type { BatchDetailRow, StorageConditions } from "@/types/database"
 
 export default function FarmerDashboardPage() {
   const { profile } = useAuth()
 
   const { data: batches = [], isLoading } = useMyBatches()
   const { data: withdrawals = [] } = useMyWithdrawals()
+  const { data: conditions } = useStorageConditions(batches.length > 0)
 
   const [tagged, setTagged] = useState<BatchDetailRow | null>(null)
   const [withdrawing, setWithdrawing] = useState<BatchDetailRow | null>(null)
@@ -41,6 +44,8 @@ export default function FarmerDashboardPage() {
       title={`Hello, ${firstName}`}
       subtitle="Your stored produce at a glance"
     >
+      {batches.length > 0 && conditions && <ConditionsBanner conditions={conditions} />}
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat label="Batches in storage" value={String(batches.length)} icon="inventory_2" />
         <Stat label="Total stored" value={tonnes(storedKg)} icon="scale" />
@@ -171,6 +176,53 @@ export default function FarmerDashboardPage() {
         onClose={() => setWithdrawing(null)}
       />
     </AppShell>
+  )
+}
+
+/**
+ * The farmer's view of storage conditions.
+ *
+ * Deliberately qualitative. Sensor values, thresholds and alerts belong to the
+ * facility, and the database will not serve them to a farmer at all. What the
+ * service actually promises is "your produce is being kept properly", so that
+ * is what this says — the same wording as the storage-record SMS.
+ */
+function ConditionsBanner({ conditions }: { conditions: StorageConditions }) {
+  const look = {
+    in_range: {
+      tone: "bg-ok-soft text-ok",
+      icon: "verified",
+      text: "Your produce is being held within the facility's operating range.",
+    },
+    out_of_range: {
+      tone: "bg-warn-soft text-warn",
+      icon: "info",
+      text: "The facility is working on conditions in your storage room. Your record is unaffected.",
+    },
+    stale: {
+      tone: "bg-neutral-100 text-ink-muted",
+      icon: "schedule",
+      text: "Awaiting the facility's latest conditions check.",
+    },
+    unknown: {
+      tone: "bg-neutral-100 text-ink-muted",
+      icon: "schedule",
+      text: "Conditions will appear here once the facility's next check is in.",
+    },
+  }[conditions.verdict]
+
+  return (
+    <div className={cn("flex items-start gap-3 rounded-lg px-4 py-3", look.tone)}>
+      <Icon name={look.icon} className="shrink-0 text-base" />
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{look.text}</p>
+        {conditions.checked_at && (
+          <p className="pt-1 text-xs opacity-80">
+            Last checked {relativeDateTime(conditions.checked_at)}
+          </p>
+        )}
+      </div>
+    </div>
   )
 }
 

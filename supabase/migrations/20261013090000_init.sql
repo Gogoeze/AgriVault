@@ -153,8 +153,8 @@ create table public.facility_settings (
   facility_id                 uuid primary key references public.facilities (id) on delete cascade,
   temperature_min_c           numeric(5,2) not null default 7,
   temperature_max_c           numeric(5,2) not null default 13,
-  humidity_min_pct            numeric(5,2) not null default 65,
-  humidity_max_pct            numeric(5,2) not null default 75,
+  humidity_min_pct            integer      not null default 65,
+  humidity_max_pct            integer      not null default 75,
   tariff_kobo_per_tonne_month bigint       not null default 1500000 check (tariff_kobo_per_tonne_month > 0),
   notify_sms                  boolean      not null default true,
   notify_whatsapp             boolean      not null default true,
@@ -169,6 +169,8 @@ create table public.facility_settings (
   constraint settings_humidity_bounds   check (humidity_min_pct >= 0 and humidity_max_pct <= 100)
 );
 
+comment on column public.facility_settings.humidity_min_pct is
+  'Whole percentage points. The rig uses integers, so the app does too.';
 comment on column public.facility_settings.tariff_kobo_per_tonne_month is
   'Storage price in kobo per tonne per month. 1500000 kobo = ₦15,000.';
 
@@ -178,14 +180,37 @@ create table public.storage_units (
   code        text not null,
   name        text,
   capacity_kg numeric(12,2) not null check (capacity_kg > 0),
-  device_id   text unique,
   created_at  timestamptz not null default now(),
 
   unique (facility_id, code)
 );
 
-comment on column public.storage_units.device_id is
-  'Identifier the sensor rig sends with each reading; maps hardware to a cold room.';
+comment on table public.storage_units is
+  'Cold rooms. Reference data — any signed-in user may read it, so nothing '
+  'about the hardware lives here. See public.devices.';
+
+-- The sensor rig, and the last thing we heard from it.
+--
+-- Separate from storage_units precisely because this is admin-only: a farmer
+-- can know their produce is in "Cold room 1" without learning anything about
+-- the equipment watching it.
+create table public.devices (
+  id           uuid primary key default gen_random_uuid(),
+  unit_id      uuid not null unique references public.storage_units (id) on delete cascade,
+  device_id    text not null unique,
+  online       boolean not null default false,
+  last_seen_at timestamptz,
+  thresholds   jsonb,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+comment on column public.devices.device_id is
+  'The node the rig writes in Firebase, reported as onionStorageId.';
+comment on column public.devices.thresholds is
+  'The thresholds the rig is actually running, as last read from Firebase: '
+  '{highTempThreshold, lowTempThreshold, highHumThreshold, lowHumThreshold}. '
+  'Advisory only — alerting uses facility_settings.';
 
 create table public.produce_types (
   id          uuid primary key default gen_random_uuid(),
@@ -365,6 +390,7 @@ create index profiles_email_trgm      on public.profiles using gin ((email::text
 create index profiles_phone_trgm      on public.profiles using gin (phone extensions.gin_trgm_ops);
 
 create index storage_units_facility_idx on public.storage_units (facility_id);
+create index devices_unit_idx on public.devices (unit_id);
 create index produce_types_facility_idx on public.produce_types (facility_id) where is_active;
 
 create index bookings_farmer_idx on public.bookings (farmer_id, created_at desc);
@@ -411,6 +437,10 @@ create trigger facilities_set_updated_at
 
 create trigger facility_settings_set_updated_at
   before update on public.facility_settings
+  for each row execute function public.set_updated_at();
+
+create trigger devices_set_updated_at
+  before update on public.devices
   for each row execute function public.set_updated_at();
 
 create trigger bookings_set_updated_at
@@ -784,6 +814,56 @@ create trigger payments_notify_farmer
   after insert or update on public.payments
   for each row execute function public.notify_payment_received();
 
+-- 6.7 What a farmer is allowed to know about conditions ----------------------
+--
+-- The service promise is "your produce is being kept properly", not a stream of
+-- sensor values. This returns that promise and nothing else: a verdict, and the
+-- age of the last reading. No temperature, no humidity, no thresholds.
+--
+-- SECURITY DEFINER so it can read telemetry a farmer cannot select directly.
+create or replace function public.storage_conditions()
+returns table (verdict text, checked_at timestamptz)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  s        public.facility_settings%rowtype;
+  reading  public.sensor_readings%rowtype;
+begin
+  -- A farmer may only ask while they have produce on site.
+  if not exists (
+    select 1 from public.storage_batches b
+    where b.farmer_id = auth.uid()
+      and b.status in ('stored', 'partially_withdrawn')
+  ) and not public.is_admin() then
+    return;
+  end if;
+
+  select * into s from public.facility_settings limit 1;
+
+  select * into reading
+  from public.sensor_readings
+  order by recorded_at desc
+  limit 1;
+
+  if reading.id is null or s.facility_id is null then
+    return query select 'unknown'::text, null::timestamptz;
+  elsif reading.recorded_at < now() - interval '2 hours' then
+    return query select 'stale'::text, reading.recorded_at;
+  elsif reading.temperature_c between s.temperature_min_c and s.temperature_max_c
+    and reading.humidity_pct between s.humidity_min_pct and s.humidity_max_pct then
+    return query select 'in_range'::text, reading.recorded_at;
+  else
+    return query select 'out_of_range'::text, reading.recorded_at;
+  end if;
+end;
+$$;
+
+revoke all on function public.storage_conditions() from public;
+grant execute on function public.storage_conditions() to authenticated;
+
 -- ----------------------------------------------------------------------------
 -- 7. Views
 --
@@ -860,6 +940,16 @@ join public.profiles p             on p.id = pay.farmer_id
 left join public.storage_batches b on b.id = pay.batch_id
 left join public.profiles rec      on rec.id = pay.recorded_by;
 
+-- The one field from facility_settings a farmer has any business reading.
+-- security_invoker is deliberately OFF: the view is the grant, so the farmer
+-- gets the tariff without select on the table that holds the thresholds.
+create view public.v_storage_tariff
+with (security_invoker = false) as
+select
+  fs.facility_id,
+  fs.tariff_kobo_per_tonne_month
+from public.facility_settings fs;
+
 create view public.v_facility_overview
 with (security_invoker = true) as
 select
@@ -905,6 +995,7 @@ alter table public.profiles            enable row level security;
 alter table public.facilities          enable row level security;
 alter table public.facility_settings   enable row level security;
 alter table public.storage_units       enable row level security;
+alter table public.devices             enable row level security;
 alter table public.produce_types       enable row level security;
 alter table public.bookings            enable row level security;
 alter table public.storage_batches     enable row level security;
@@ -943,8 +1034,10 @@ create policy "facilities: admins write"
   on public.facilities for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
-create policy "settings: readable by signed-in users"
-  on public.facility_settings for select to authenticated using (true);
+-- Thresholds and alert contacts are facility operations, not farmer-facing.
+-- Farmers read the price through v_storage_tariff instead.
+create policy "settings: admins read"
+  on public.facility_settings for select to authenticated using (public.is_admin());
 
 create policy "settings: admins write"
   on public.facility_settings for all to authenticated
@@ -955,6 +1048,11 @@ create policy "units: readable by signed-in users"
 
 create policy "units: admins write"
   on public.storage_units for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Hardware is facility operations. Admins only, same as telemetry.
+create policy "devices: admins only"
+  on public.devices for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
 create policy "produce: readable by signed-in users"
@@ -1023,12 +1121,16 @@ create policy "payments: admins write"
   using (public.is_admin()) with check (public.is_admin());
 
 -- 8.7 Telemetry --------------------------------------------------------------
-create policy "readings: readable by signed-in users"
-  on public.sensor_readings for select to authenticated using (true);
+-- Hardware telemetry is operational data for the facility, not for the people
+-- storing produce. Farmers get a qualitative "conditions are in range" signal
+-- derived in the app; they can never read a temperature, a humidity or an
+-- alert. Enforced here, so it holds no matter what the UI does.
+create policy "readings: admins read"
+  on public.sensor_readings for select to authenticated using (public.is_admin());
 -- No insert policy: writes come from the service role, which bypasses RLS.
 
-create policy "alerts: readable by signed-in users"
-  on public.alerts for select to authenticated using (true);
+create policy "alerts: admins read"
+  on public.alerts for select to authenticated using (public.is_admin());
 
 create policy "alerts: admins resolve"
   on public.alerts for update to authenticated
@@ -1096,6 +1198,7 @@ grant insert, update, delete on
   public.facilities,
   public.facility_settings,
   public.storage_units,
+  public.devices,
   public.produce_types,
   public.bookings,
   public.storage_batches,
@@ -1104,4 +1207,5 @@ grant insert, update, delete on
   public.alerts,
   public.notifications
 to authenticated;
+grant select on public.v_storage_tariff to authenticated;
 grant usage on all sequences in schema public to authenticated;

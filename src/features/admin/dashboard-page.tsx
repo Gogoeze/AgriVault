@@ -6,7 +6,7 @@ import { SeverityBadge } from "@/components/ui/badge"
 import { Card, CardBody, CardHeader, Stat } from "@/components/ui/card"
 import { Icon } from "@/components/ui/icon"
 import { EmptyState } from "@/components/ui/table"
-import { useFacilityOverview, useFacilitySettings } from "@/features/facility/queries"
+import { useDevices, useFacilityOverview, useFacilitySettings } from "@/features/facility/queries"
 import { ClimateChart } from "@/features/monitoring/climate-chart"
 import { useLiveClimate, useOpenAlerts, useReadingSeries } from "@/features/monitoring/queries"
 import { useWithdrawals } from "@/features/withdrawals/queries"
@@ -17,6 +17,7 @@ export default function AdminDashboardPage() {
 
   const { data: overview } = useFacilityOverview()
   const { data: settings } = useFacilitySettings()
+  const { data: devices = [] } = useDevices()
   const { data: readings = [] } = useReadingSeries(24)
   const { data: alerts = [], isLoading: alertsLoading } = useOpenAlerts(5)
   const { data: withdrawals = [], isLoading: withdrawalsLoading } = useWithdrawals("pending", 5)
@@ -24,8 +25,31 @@ export default function AdminDashboardPage() {
   const capacity = overview?.capacity_kg ?? 0
   const stored = overview?.stored_kg ?? 0
 
+  // A rig that has stopped reporting produces no readings, and no readings
+  // produces no alerts — which looks exactly like everything being fine. Say so.
+  const offline = devices.filter((device) => !device.online)
+
   return (
     <AppShell nav={adminNav} title="Dashboard" subtitle="Storage overview">
+      {offline.length > 0 && (
+        <Link
+          to="/admin/monitoring"
+          className="flex items-start gap-3 rounded-lg bg-critical-soft px-4 py-3 text-critical transition-colors hover:brightness-98"
+        >
+          <Icon name="sensors_off" className="shrink-0 text-base" />
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">
+              {offline.length === 1
+                ? `${offline[0]!.unit?.code ?? offline[0]!.device_id} is not reporting`
+                : `${offline.length} cold rooms are not reporting`}
+            </span>
+            <span className="block pt-1 text-xs opacity-80">
+              No readings means no alerts. Check the rig before trusting the figures below.
+            </span>
+          </span>
+        </Link>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Active farmers" value={String(overview?.active_farmers ?? 0)} icon="group" />
         <Stat label="In storage" value={tonnes(stored)} icon="inventory_2" />

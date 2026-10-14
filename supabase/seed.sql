@@ -161,12 +161,18 @@ values (
 )
 on conflict (facility_id) do nothing;
 
-insert into public.storage_units (id, facility_id, code, name, capacity_kg, device_id)
+insert into public.storage_units (id, facility_id, code, name, capacity_kg)
 values
-  ('00000000-0000-4000-c000-000000000001', '00000000-0000-4000-b000-000000000001', 'U-1', 'Cold room 1', 60000, 'store_001'),
-  ('00000000-0000-4000-c000-000000000002', '00000000-0000-4000-b000-000000000001', 'U-2', 'Cold room 2', 60000, 'store_002'),
-  ('00000000-0000-4000-c000-000000000003', '00000000-0000-4000-b000-000000000001', 'U-3', 'Cold room 3', 55000, 'store_003')
+  ('00000000-0000-4000-c000-000000000001', '00000000-0000-4000-b000-000000000001', 'U-1', 'Cold room 1', 60000),
+  ('00000000-0000-4000-c000-000000000002', '00000000-0000-4000-b000-000000000001', 'U-2', 'Cold room 2', 60000),
+  ('00000000-0000-4000-c000-000000000003', '00000000-0000-4000-b000-000000000001', 'U-3', 'Cold room 3', 55000)
 on conflict (id) do nothing;
+
+-- device_id must match the node the rig writes in Firebase (onionStorageId).
+-- Only store_001 exists on the pilot rig today; map more as they are built.
+insert into public.devices (unit_id, device_id, online, last_seen_at)
+values ('00000000-0000-4000-c000-000000000001', 'store_001', true, now())
+on conflict (device_id) do nothing;
 
 insert into public.produce_types (id, facility_id, name)
 values
@@ -264,19 +270,6 @@ select
 from generate_series(0, 71) as h
 cross join (
   select id from public.storage_units where code = 'U-1'
-) u
-on conflict (unit_id, recorded_at) do nothing;
-
-insert into public.sensor_readings (unit_id, temperature_c, humidity_pct, battery_pct, recorded_at)
-select
-  u.id,
-  round((10.2 + cos(h / 3.5) * 1.4)::numeric, 2),
-  round((69 + sin(h / 5.0) * 3.0)::numeric, 2),
-  round((92 - h * 0.15)::numeric, 2),
-  now() - (h || ' hours')::interval
-from generate_series(0, 71) as h
-cross join (
-  select id from public.storage_units where code = 'U-2'
 ) u
 on conflict (unit_id, recorded_at) do nothing;
 

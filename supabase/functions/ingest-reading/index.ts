@@ -59,13 +59,15 @@ Deno.serve(async (request) => {
 
   const db = adminClient()
 
-  const { data: unit, error: unitError } = await db
-    .from("storage_units")
-    .select("id, code")
+  const { data: device, error: deviceError } = await db
+    .from("devices")
+    .select("id, unit:storage_units(id, code)")
     .eq("device_id", body.deviceId)
     .maybeSingle()
 
-  if (unitError) return fail(request, "Could not look up the device.", 500, unitError.message)
+  if (deviceError) return fail(request, "Could not look up the device.", 500, deviceError.message)
+
+  const unit = (device as unknown as { unit: { id: string; code: string } | null } | null)?.unit
   if (!unit) return fail(request, `No cold room is mapped to device ${body.deviceId}.`, 404)
 
   const recordedAt = body.recordedAt ? new Date(body.recordedAt) : new Date()
@@ -87,6 +89,11 @@ Deno.serve(async (request) => {
     .maybeSingle()
 
   if (error) return fail(request, "Could not store the reading.", 500, error.message)
+
+  await db
+    .from("devices")
+    .update({ online: true, last_seen_at: recordedAt.toISOString() })
+    .eq("device_id", body.deviceId)
 
   return json(request, {
     stored: Boolean(reading),

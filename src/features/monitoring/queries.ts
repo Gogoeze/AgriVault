@@ -3,7 +3,7 @@ import { useEffect } from "react"
 
 import { keys } from "@/lib/query-client"
 import { supabase } from "@/lib/supabase"
-import type { Alert, SensorReading } from "@/types/database"
+import type { Alert, SensorReading, StorageConditions } from "@/types/database"
 
 export const READINGS_PAGE_SIZE = 8
 
@@ -100,4 +100,22 @@ export function useLiveClimate() {
       void supabase.removeChannel(channel)
     }
   }, [client])
+}
+
+/**
+ * The only thing a farmer is allowed to learn about conditions: a verdict, and
+ * when it was taken. The function behind it is security definer and refuses to
+ * answer for anyone without produce on site — no reading ever crosses the wire.
+ */
+export function useStorageConditions(enabled = true) {
+  return useQuery({
+    queryKey: keys.conditions,
+    enabled,
+    staleTime: 60_000,
+    queryFn: async (): Promise<StorageConditions> => {
+      const { data, error } = await supabase.rpc("storage_conditions")
+      if (error) throw error
+      return data?.[0] ?? { verdict: "unknown", checked_at: null }
+    },
+  })
 }

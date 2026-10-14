@@ -4,6 +4,7 @@ import { NavLink } from "react-router-dom"
 import { NotificationsPanel } from "@/features/notifications/notifications-panel"
 import { useAuth } from "@/features/auth/auth-context"
 import { Icon } from "@/components/ui/icon"
+import { Logo } from "@/components/ui/logo"
 import { cn } from "@/lib/cn"
 import { initials } from "@/lib/format"
 
@@ -46,9 +47,8 @@ function Sidebar({
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex h-topbar items-center gap-2 px-6">
-          <Icon name="inventory_2" filled className="text-xl" />
-          <span className="text-base font-semibold tracking-tight">AgriVault</span>
+        <div className="flex h-topbar items-center px-6">
+          <Logo inverted className="h-7" />
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 px-3 py-4">

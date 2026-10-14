@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardBody, CardHeader, Stat } from "@/components/ui/card"
 import { Select } from "@/components/ui/field"
 import { DataTable, EmptyState, Pagination, type Column } from "@/components/ui/table"
-import { useFacilitySettings, useStorageUnits } from "@/features/facility/queries"
+import { useDevices, useFacilitySettings, useStorageUnits } from "@/features/facility/queries"
 import { ClimateChart } from "@/features/monitoring/climate-chart"
+import { DevicePanel } from "@/features/monitoring/device-panel"
 import {
   READINGS_PAGE_SIZE,
   useLatestReading,
@@ -33,6 +34,7 @@ export default function AdminMonitoringPage() {
 
   const { data: settings } = useFacilitySettings()
   const { data: units = [] } = useStorageUnits()
+  const { data: devices = [] } = useDevices()
   const { data: latest } = useLatestReading()
   const { data: series = [] } = useReadingSeries(hours)
   const { data: table, isLoading } = useReadings(page)
@@ -136,6 +138,8 @@ export default function AdminMonitoringPage() {
           icon="schedule"
         />
       </div>
+
+      <DevicePanel devices={devices} settings={settings ?? null} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

@@ -65,6 +65,12 @@ function validate(form: FormState): string | null {
   if (tMin >= tMax) return "Minimum temperature must be below the maximum."
   if (hMin >= hMax) return "Minimum humidity must be below the maximum."
   if (hMin < 0 || hMax > 100) return "Humidity must sit between 0 and 100."
+  // The rig stores humidity thresholds as whole percentage points. Saying so
+  // beats rounding behind the operator's back and showing them a number they
+  // did not type.
+  if (!Number.isInteger(hMin) || !Number.isInteger(hMax)) {
+    return "Humidity thresholds must be whole numbers — the sensor uses whole percent."
+  }
 
   if (!(num(form.tariffNaira) > 0)) return "The tariff must be greater than zero."
   if ((form.notifySms || form.notifyWhatsapp) && !form.alertPhone.trim()) {
@@ -143,8 +149,8 @@ export default function AdminSettingsPage() {
         facility_id: settings.facility_id,
         temperature_min_c: Number(form.temperatureMin),
         temperature_max_c: Number(form.temperatureMax),
-        humidity_min_pct: Number(form.humidityMin),
-        humidity_max_pct: Number(form.humidityMax),
+        humidity_min_pct: Math.round(Number(form.humidityMin)),
+        humidity_max_pct: Math.round(Number(form.humidityMax)),
         tariff_kobo_per_tonne_month: Math.round(Number(form.tariffNaira) * 100),
         notify_sms: form.notifySms,
         notify_whatsapp: form.notifyWhatsapp,
@@ -259,7 +265,7 @@ export default function AdminSettingsPage() {
           description="Readings outside these bands raise an alert automatically."
         />
         <CardBody className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Field label="Temperature min">
+          <Field label="Temperature min" hint="0.1° steps">
             {(props) => (
               <Input
                 {...props}
@@ -270,7 +276,7 @@ export default function AdminSettingsPage() {
               />
             )}
           </Field>
-          <Field label="Temperature max">
+          <Field label="Temperature max" hint="0.1° steps">
             {(props) => (
               <Input
                 {...props}
@@ -281,10 +287,14 @@ export default function AdminSettingsPage() {
               />
             )}
           </Field>
-          <Field label="Humidity min">
+          <Field label="Humidity min" hint="Whole percent">
             {(props) => (
               <Input
                 {...props}
+                type="number"
+                min={0}
+                max={100}
+                step={1}
                 numeric
                 suffix="%"
                 value={form.humidityMin}
@@ -292,10 +302,14 @@ export default function AdminSettingsPage() {
               />
             )}
           </Field>
-          <Field label="Humidity max">
+          <Field label="Humidity max" hint="Whole percent">
             {(props) => (
               <Input
                 {...props}
+                type="number"
+                min={0}
+                max={100}
+                step={1}
                 numeric
                 suffix="%"
                 value={form.humidityMax}

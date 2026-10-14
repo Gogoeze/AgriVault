@@ -80,7 +80,8 @@ supabase/
   functions/
     _shared/      http, supabase clients, Resend, the email design system
     send-email/   renders a named template and sends it through Resend
-    ingest-reading/ the endpoint the sensor rigs post to
+    ingest-reading/ the endpoint a sensor rig posts to directly
+    sync-readings/  pulls the Firebase node the embedded rig writes
 ```
 
 Features own their own queries, components and pages. Anything two features
@@ -189,6 +190,57 @@ apart.
 3. Hosted: SMTP under **Authentication → SMTP** (host `smtp.resend.com`, port
    `465`, user `resend`, password the API key), then
    `supabase secrets set --env-file supabase/.env` for the function secrets.
+
+---
+
+## Hardware
+
+The embedded side owns Firebase. The rig writes one node per cold room:
+
+```
+store_001/
+  data/      { onionStorageId, temp, humidity, isActive, timestamp }
+  settings/  { highTempThreshold, lowTempThreshold, highHumThreshold, lowHumThreshold }
+```
+
+Firebase holds only the latest value — a live register, not a history. The
+`sync-readings` function pulls it over the RTDB REST API and appends it to
+`sensor_readings`, which is where history, charts and alerting live. Add a row
+to `devices` mapping the node name the rig reports (`onionStorageId`) to a cold
+room, then schedule the sync every few minutes; the snippet is at the top of
+`supabase/functions/sync-readings/index.ts`.
+
+A rig can also post straight to `ingest-reading` and skip Firebase entirely —
+both paths land in the same table and raise alerts the same way.
+
+The rig carries its own copy of the thresholds. AgriVault alerts on
+`facility_settings`, so when the two drift apart the dashboard says so on the
+monitoring page rather than letting them disagree quietly.
+
+### Who sees what
+
+**Farmers never see hardware data.** No temperature, no humidity, no
+thresholds, no device, no alerts. This is enforced in Postgres, not in the UI —
+`sensor_readings`, `alerts`, `devices` and `facility_settings` are all
+admin-only under RLS, and alert notifications go to admins alone.
+
+Two consequences worth knowing, because they are easy to undo by accident:
+
+- `devices` is a table of its own rather than columns on `storage_units`.
+  Rooms are reference data every signed-in user can read; the rig is not.
+- Farmers read the storage price through `v_storage_tariff`, not
+  `facility_settings` — that row also carries the thresholds and the alert
+  contacts.
+
+What a farmer gets instead is the promise the service actually makes — a
+verdict, from the `storage_conditions()` function, which is `security definer`
+and refuses to answer for anyone with nothing in storage:
+
+> Your produce is being held within the facility's operating range.
+
+Same wording as the storage-record SMS in the concept note. If you later want
+farmers to see real figures, that is one policy change plus a new column on the
+verdict — but it should be a decision, not an accident.
 
 ---
 

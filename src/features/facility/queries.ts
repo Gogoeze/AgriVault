@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { keys } from "@/lib/query-client"
 import { supabase } from "@/lib/supabase"
 import type {
+  Device,
   Facility,
   FacilityOverviewRow,
   FacilitySettings,
@@ -44,6 +45,29 @@ export function useFacilitySettings() {
   })
 }
 
+/**
+ * The storage price, for the farmer's payment screen.
+ *
+ * Deliberately not useFacilitySettings: that row also carries the climate
+ * thresholds and the alert contacts, and farmers are not shown either. This
+ * reads a view that exposes the tariff alone.
+ */
+export function useStorageTariff() {
+  return useQuery({
+    queryKey: keys.tariff,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<number> => {
+      const { data, error } = await supabase
+        .from("v_storage_tariff")
+        .select("tariff_kobo_per_tonne_month")
+        .limit(1)
+        .maybeSingle()
+      if (error) throw error
+      return data?.tariff_kobo_per_tonne_month ?? 0
+    },
+  })
+}
+
 export function useStorageUnits() {
   return useQuery({
     queryKey: keys.units,
@@ -52,6 +76,23 @@ export function useStorageUnits() {
       const { data, error } = await supabase.from("storage_units").select("*").order("code")
       if (error) throw error
       return data ?? []
+    },
+  })
+}
+
+/** The sensor rigs and their last contact. Admin-only under RLS. */
+export function useDevices() {
+  return useQuery({
+    queryKey: keys.devices,
+    queryFn: async (): Promise<Array<Device & { unit: { code: string; name: string | null } | null }>> => {
+      const { data, error } = await supabase
+        .from("devices")
+        .select("*, unit:storage_units(code, name)")
+        .order("device_id")
+      if (error) throw error
+      return (data ?? []) as unknown as Array<
+        Device & { unit: { code: string; name: string | null } | null }
+      >
     },
   })
 }

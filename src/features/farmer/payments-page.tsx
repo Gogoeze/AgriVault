@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardBody, CardHeader, Stat } from "@/components/ui/card"
 import { Field, Input, Select } from "@/components/ui/field"
 import { DataTable, EmptyState, Pagination, type Column } from "@/components/ui/table"
-import { useFacilitySettings, useProduceTypes } from "@/features/facility/queries"
+import { useProduceTypes, useStorageTariff } from "@/features/facility/queries"
 import { PAGE_SIZE, useMyPayments } from "@/features/payments/queries"
 import { downloadReceipt } from "@/features/payments/receipt"
 import { date, naira } from "@/lib/format"
@@ -25,7 +25,7 @@ const METHODS = [
 ]
 
 export default function FarmerPaymentsPage() {
-  const { data: settings } = useFacilitySettings()
+  const { data: rateKobo = 0 } = useStorageTariff()
   const { data: produce = [] } = useProduceTypes()
 
   const [quantityKg, setQuantityKg] = useState("2000")
@@ -36,7 +36,6 @@ export default function FarmerPaymentsPage() {
 
   const { data, isLoading } = useMyPayments(page)
 
-  const rateKobo = settings?.tariff_kobo_per_tonne_month ?? 0
   const tonnes = (Number(quantityKg) || 0) / 1000
   const totalKobo = Math.round(tonnes * rateKobo * months)
 

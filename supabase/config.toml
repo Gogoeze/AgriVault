@@ -112,3 +112,6 @@ verify_jwt = false
 
 [functions.ingest-reading]
 verify_jwt = false
+
+[functions.sync-readings]
+verify_jwt = false
