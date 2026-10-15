@@ -39,11 +39,19 @@ service cloud.firestore {
 
     // An admin must also be active: suspending the account takes access away
     // immediately, without having to find and change every rule.
+    //
+    // The custom claim is checked first because it costs nothing — it is
+    // already in the token — while the profile lookup is a billed read on
+    // every rule evaluation. The lookup stays as a fallback so an admin whose
+    // token predates the claim is not locked out of the app; they will still
+    // find live sensor readings empty, since Realtime Database rules can only
+    // see the claim. scripts/set-admin.ts fixes that, and signing out and back
+    // in applies it.
     function isAdmin() {
-      return signedIn()
-        && profileExists()
-        && profile().role == 'admin'
-        && profile().status == 'active';
+      return signedIn() && (
+        request.auth.token.role == 'admin'
+        || (profileExists() && profile().role == 'admin' && profile().status == 'active')
+      );
     }
 
     function isSelf(uid) {

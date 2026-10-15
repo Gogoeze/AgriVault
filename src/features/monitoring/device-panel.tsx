@@ -3,6 +3,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card"
 import { Icon } from "@/components/ui/icon"
 import { EmptyState } from "@/components/ui/table"
 import { relativeDateTime } from "@/lib/format"
+import type { LiveReading } from "@/features/monitoring/use-live-readings"
+import { celsius, percent } from "@/lib/format"
 import type { Device, ThresholdConfig } from "@/types/models"
 
 /**
@@ -16,16 +18,20 @@ import type { Device, ThresholdConfig } from "@/types/models"
 export function DevicePanel({
   devices,
   settings,
+  live = [],
 }: {
   devices: Device[]
   settings: ThresholdConfig | null
+  /** Live values from the Realtime Database, keyed by device id. */
+  live?: LiveReading[]
 }) {
+  const liveByDevice = new Map(live.map((reading) => [reading.deviceId, reading]))
   return (
     <Card>
       <CardHeader
         icon="sensors"
         title="Sensor devices"
-        description="Live status reported by the rig in each cold room."
+        description="Live, straight from the sensor database."
       />
       <CardBody className="p-0">
         {devices.length === 0 ? (
@@ -37,7 +43,11 @@ export function DevicePanel({
         ) : (
           <ul>
             {devices.map((device) => {
-              const drift = thresholdDrift(device, settings)
+              const reading = liveByDevice.get(device.deviceId)
+              // Live wins over the Firestore copy, which is only as fresh as
+              // the last sync run.
+              const online = reading ? reading.isActive && reading.fresh : device.online
+              const drift = thresholdDrift(reading?.thresholds ?? device.thresholds, settings)
 
               return (
                 <li key={device.id} className="border-b border-line p-4 last:border-0">
@@ -61,31 +71,33 @@ export function DevicePanel({
 
                     <div className="flex items-center gap-3">
                       <span className="mono text-2xs text-ink-subtle">
-                        {device.lastSeenAt
-                          ? `Last seen ${relativeDateTime(device.lastSeenAt)}`
-                          : "Never reported"}
+                        {reading
+                          ? `${celsius(reading.temperatureC)} · ${percent(reading.humidityPct)} · ${relativeDateTime(reading.recordedAt)}`
+                          : device.lastSeenAt
+                            ? `Last seen ${relativeDateTime(device.lastSeenAt)}`
+                            : "Never reported"}
                       </span>
-                      <Badge tone={device.online ? "ok" : "critical"} dot>
-                        {device.online ? "Online" : "Offline"}
+                      <Badge tone={online ? "ok" : "critical"} dot>
+                        {online ? "Online" : "Offline"}
                       </Badge>
                     </div>
                   </div>
 
-                  {device.thresholds && (
+                  {(reading?.thresholds ?? device.thresholds) && (
                     <dl className="flex flex-wrap gap-6 pt-4">
                       <Threshold
                         label="Device temp band"
                         value={range(
-                          device.thresholds.lowTempThreshold,
-                          device.thresholds.highTempThreshold,
+                          (reading?.thresholds ?? device.thresholds)!.lowTempThreshold,
+                          (reading?.thresholds ?? device.thresholds)!.highTempThreshold,
                           "°C",
                         )}
                       />
                       <Threshold
                         label="Device humidity band"
                         value={range(
-                          device.thresholds.lowHumThreshold,
-                          device.thresholds.highHumThreshold,
+                          (reading?.thresholds ?? device.thresholds)!.lowHumThreshold,
+                          (reading?.thresholds ?? device.thresholds)!.highHumThreshold,
                           "%",
                         )}
                       />
@@ -121,8 +133,10 @@ const range = (low: number | null, high: number | null, unit: string) =>
   low === null || high === null ? "—" : `${low}–${high}${unit}`
 
 /** A sentence naming the disagreement, or null when the two agree. */
-function thresholdDrift(row: Device, settings: ThresholdConfig | null): string | null {
-  const device = row.thresholds
+function thresholdDrift(
+  device: Device["thresholds"],
+  settings: ThresholdConfig | null,
+): string | null {
   if (!device || !settings) return null
 
   const mismatched: string[] = []

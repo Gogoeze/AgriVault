@@ -11,11 +11,13 @@ import { ClimateChart } from "@/features/monitoring/climate-chart"
 import { DevicePanel } from "@/features/monitoring/device-panel"
 import {
   READINGS_PAGE_SIZE,
-  useLatestReading,
   useLiveClimate,
   useReadingSeries,
   useReadings,
 } from "@/features/monitoring/queries"
+import { newestReading, useLiveReadings } from "@/features/monitoring/use-live-readings"
+import { useAuth } from "@/features/auth/auth-context"
+import { Icon } from "@/components/ui/icon"
 import { celsius, percent, relativeDateTime } from "@/lib/format"
 import type { SensorReading } from "@/types/models"
 
@@ -34,7 +36,14 @@ export default function AdminMonitoringPage() {
 
   const { data: settings } = useThresholds()
   const { data: devices = [] } = useDevices()
-  const { data: latest } = useLatestReading()
+  const { hasAdminClaim } = useAuth()
+
+  // Live values come straight from the Realtime Database, so they appear the
+  // instant the rig posts them. The Firestore reading below is only a fallback
+  // for when the rig is offline but history exists.
+  const live = useLiveReadings(devices, hasAdminClaim)
+  const newest = newestReading(live.readings)
+
   const { data: series = [] } = useReadingSeries(hours)
   const { data: table, isLoading } = useReadings(page)
 
@@ -114,25 +123,32 @@ export default function AdminMonitoringPage() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat
           label="Temperature now"
-          value={latest ? celsius(latest.temperatureC) : "—"}
+          value={newest ? celsius(newest.temperatureC) : "—"}
           hint={tempBand ? `Band ${tempBand.min}–${tempBand.max}°C` : undefined}
           icon="thermostat"
         />
         <Stat
           label="Humidity now"
-          value={latest ? percent(latest.humidityPct) : "—"}
+          value={newest ? percent(newest.humidityPct) : "—"}
           hint={humidityBand ? `Band ${humidityBand.min}–${humidityBand.max}%` : undefined}
           icon="humidity_percentage"
         />
         <Stat
           label="Last reading"
-          value={latest ? relativeDateTime(latest.recordedAt) : "—"}
-          hint="Logged automatically"
+          value={newest ? relativeDateTime(newest.recordedAt) : "—"}
+          hint={newest ? `Live from ${newest.unitCode}` : "Waiting for the rig"}
           icon="schedule"
         />
       </div>
 
-      <DevicePanel devices={devices} settings={settings ?? null} />
+      {live.error && (
+        <p className="flex items-start gap-2 rounded-lg bg-warn-soft px-4 py-3 text-xs text-warn">
+          <Icon name="warning" className="shrink-0 text-base" />
+          {live.error}
+        </p>
+      )}
+
+      <DevicePanel devices={devices} settings={settings ?? null} live={live.readings} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Card>

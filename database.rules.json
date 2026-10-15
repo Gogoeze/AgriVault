@@ -1,26 +1,73 @@
+// Realtime Database rules — the IoT side.
+//
+// NOTE ON SYNTAX: this file is JSON with // comments. Every key under "rules"
+// is a PATH, and its value must be an object or a ".rule" string — never an
+// array. (That is what broke the earlier version of this file.)
+//
+// ----------------------------------------------------------------------------
+// READ THIS BEFORE DEPLOYING — it can stop your sensor rig writing.
+//
+// ".write": false below closes writes to every CLIENT. Whether that affects
+// your rig depends on how it authenticates:
+//
+//   * Admin SDK, a database secret, or a service account  → UNAFFECTED.
+//     Those bypass rules entirely. This is the normal setup and almost
+//     certainly yours, since the rig is already writing.
+//
+//   * A plain client SDK with no sign-in → THE RIG WILL STOP WRITING.
+//     If that is your setup, ask your embedded engineer to move it onto a
+//     service account, or temporarily set the "data" write rule below to
+//     true while that happens.
+//
+// Check the current rules in the console before you overwrite them:
+//   Firebase Console → Realtime Database → Rules
+//
+// Deploy these separately and deliberately:
+//   npm run rules:deploy      Firestore only — always safe
+//   npm run rules:deploy:db   this file — read the above first
+// ----------------------------------------------------------------------------
+
 {
   "rules": {
+    // Closed by default. Nothing is readable or writable unless a rule below
+    // opens it.
     ".read": false,
     ".write": false,
 
+    // One node per cold room, named by the id the rig reports (store_001).
     "$store": {
+      // Reads are gated on a custom claim rather than a database lookup,
+      // because RTDB rules cannot query Firestore. scripts/seed.ts and
+      // scripts/set-admin.ts put { role: "admin" } on the Auth token, and only
+      // a token carrying it may read. A farmer's token does not, so the server
+      // refuses them the hardware data outright — the same promise the
+      // Firestore rules make, enforced in a second place.
+      ".read": "auth != null && auth.token.role === 'admin'",
+
       "data": {
-        ".read": false,
+        // Set this to true ONLY if your rig writes as an unauthenticated
+        // client. See the note at the top of this file.
         ".write": false,
-        ".validate": "newData.hasChildren(['temp', 'humidity', 'timestamp'])",
+
+        ".validate": "newData.hasChildren(['temp', 'humidity'])",
         "temp": { ".validate": "newData.isNumber()" },
-        "humidity": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
+        "humidity": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+        },
         "isActive": { ".validate": "newData.isBoolean()" },
         "onionStorageId": { ".validate": "newData.isString()" },
-        "timestamp": { ".validate": "newData.isString()" }
+        "timestamp": { ".validate": "newData.isString()" },
+        "$other": { ".validate": false }
       },
+
       "settings": {
-        ".read": false,
         ".write": false,
+
         "highTempThreshold": { ".validate": "newData.isNumber()" },
         "lowTempThreshold": { ".validate": "newData.isNumber()" },
         "highHumThreshold": { ".validate": "newData.isNumber()" },
-        "lowHumThreshold": { ".validate": "newData.isNumber()" }
+        "lowHumThreshold": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
       }
     }
   }

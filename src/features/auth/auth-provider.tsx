@@ -19,6 +19,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  // Read from the ID token, not the profile: this is what the Realtime
+  // Database rules actually check.
+  const [hasAdminClaim, setHasAdminClaim] = useState(false)
   // Firebase mutates the User object in place on reload() rather than handing
   // back a new one, so this forces a render when verification completes.
   const [verifiedTick, setVerifiedTick] = useState(0)
@@ -35,7 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     return onAuthStateChanged(auth, (next) => {
       setUser(next)
-      void loadProfile(next?.uid).finally(() => setLoading(false))
+
+      void (async () => {
+        if (next) {
+          const token = await next.getIdTokenResult()
+          setHasAdminClaim(token.claims.role === "admin")
+        } else {
+          setHasAdminClaim(false)
+        }
+        await loadProfile(next?.uid)
+        setLoading(false)
+      })()
     })
   }, [loadProfile])
 
@@ -48,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       role,
       isAdmin: role === "admin",
+      hasAdminClaim,
       emailVerified: Boolean(user?.emailVerified),
 
       async signIn(email, password) {
@@ -123,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // in place on reload(), so nothing else here changes identity when an email
     // is verified and the memo would otherwise hand back a stale emailVerified.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, profile, loading, verifiedTick, loadProfile])
+  }, [user, profile, loading, verifiedTick, hasAdminClaim, loadProfile])
 
   return <AuthContext value={value}>{children}</AuthContext>
 }

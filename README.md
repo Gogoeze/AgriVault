@@ -26,8 +26,25 @@ The one thing you **do** have to deploy is the security rules, because those are
 not data:
 
 ```bash
-npm run rules:deploy
+npm run rules:deploy      # Firestore rules and indexes — always safe
 ```
+
+The Realtime Database rules deploy **separately and on purpose**:
+
+```bash
+npm run rules:deploy:db   # read the warning first
+```
+
+> **This one can stop your sensor rig writing.** The file closes writes to
+> clients. If your rig uses the Admin SDK, a database secret or a service
+> account — which is the normal setup, and almost certainly yours since it is
+> already writing — nothing changes, because those bypass rules entirely. But
+> if it writes as a plain unauthenticated client, it will stop. Check
+> **Firebase Console → Realtime Database → Rules** before overwriting, and read
+> the notes at the top of `database.rules.json`.
+
+Both commands run `npm run rules:check` first, which catches the structural
+mistakes locally rather than after a round trip to Firebase.
 
 ---
 
@@ -59,12 +76,39 @@ only ever holds the *latest* reading — it is a live register, not a history.
 
 **Firestore** is the database. Everything the business runs on lives here.
 
-**`/api/sync-readings`** is the bridge. Every five minutes it reads the RTDB
-node, appends the reading to Firestore, raises an alert if the room is outside
-its band, and updates the one-word verdict farmers are allowed to see.
+**Live values** come straight from the RTDB. The admin screens subscribe to it
+directly, so a reading appears the moment the rig posts it — no cron, no
+server, works on `npm run dev` with nothing deployed.
 
-A rig can also post straight to Firestore-side logic later; today the bridge is
-the only path, and it is the only thing that writes sensor data.
+**`/api/sync-readings`** is the bridge, and it handles the things a
+subscription cannot: it appends each reading to Firestore so there is a
+history to chart, raises alerts when a room leaves its band, and updates the
+one-word verdict farmers are allowed to see.
+
+> **Why both?** A subscription shows you *now*. It cannot build a history,
+> because nothing is listening when every browser tab is closed. The sync route
+> cannot show you *now* either, because on a free plan it runs once a day. Each
+> covers the other's gap.
+
+### Scheduling the sync
+
+Vercel's Hobby plan allows **one cron run per day**, so `vercel.json` is set to
+daily and the five-minute job lives in GitHub Actions instead
+(`.github/workflows/sync-readings.yml`), which is free.
+
+Add two repository secrets — **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+| --- | --- |
+| `APP_URL` | `https://your-app.vercel.app` |
+| `SYNC_KEY` | the same value you set in Vercel's environment variables |
+
+Without both, the workflow skips rather than failing every five minutes. You
+can also trigger it by hand from the Actions tab, or call it yourself:
+
+```bash
+curl -X POST https://your-app.vercel.app/api/sync-readings -H "x-sync-key: $SYNC_KEY"
+```
 
 ---
 
@@ -74,7 +118,7 @@ the only path, and it is the only thing that writes sensor data.
 npm install
 cp .env.example .env     # then fill in the blanks — see below
 npm run seed             # one time: creates accounts and facility config
-npm run rules:deploy     # one time: publishes the security rules
+npm run rules:deploy     # one time: publishes the Firestore rules
 npm run dev
 ```
 
@@ -167,15 +211,13 @@ frustrating hour if you do not know to look.
 
 ### 4. The cron
 
-`vercel.json` already schedules `/api/sync-readings` every five minutes. Vercel
-sends a bearer token matching `SYNC_KEY`, so make sure that variable is set in
-Vercel too, or every run returns 401.
+`vercel.json` schedules `/api/sync-readings` **daily**, which is the most a
+Hobby account allows — asking for more makes the deploy fail outright. The
+five-minute job runs in GitHub Actions instead; see **Scheduling the sync**
+above.
 
-Cron needs a Pro plan. On Hobby, call the route yourself:
-
-```bash
-curl -X POST https://your-app.vercel.app/api/sync-readings -H "x-sync-key: $SYNC_KEY"
-```
+Vercel sends a bearer token matching `SYNC_KEY`, so that variable must be set
+in Vercel too, or every run returns 401.
 
 ---
 
@@ -336,7 +378,10 @@ only place a domain state becomes a colour.
 | `npm run lint` / `lint:fix` | ESLint |
 | `npm run format` | Prettier |
 | `npm run seed` | One-time Firebase setup (replaces migrations) |
-| `npm run rules:deploy` | Publish Firestore + RTDB rules and indexes |
+| `npm run set-admin -- <email>` | Promote an account to admin (or `… farmer` to demote) |
+| `npm run rules:check` | Validate both rules files before deploying |
+| `npm run rules:deploy` | Publish Firestore rules and indexes (safe) |
+| `npm run rules:deploy:db` | Publish Realtime Database rules (read the warning) |
 | `npm run emails:auth` | Rebuild the Firebase Auth email templates |
 
 ---
@@ -363,6 +408,33 @@ Console → Authentication → Settings → Authorized domains.
 button — or run `npm run rules:deploy`, which publishes
 `firestore.indexes.json`.
 
-**The admin dashboard shows no readings.** `/api/sync-readings` has not run.
-Call it by hand with your `SYNC_KEY` and read what comes back — it reports every
-device it tried.
+**The admin dashboard shows no live readings, but the data is in Firebase.**
+Almost always the admin claim. The role lives both on the profile document and
+as a custom claim on the Auth token, and **Realtime Database rules can only see
+the claim** — they cannot query Firestore. A token issued before the claim was
+set lets you use the app but not read the sensors.
+
+```bash
+npm run set-admin -- you@example.com
+```
+
+Then **sign out and back in**, because the role is baked into the token. The
+monitoring page says so in plain words when this is the cause.
+
+**The charts and the readings table are empty, but the live tiles work.** Those
+come from Firestore history, which only `/api/sync-readings` writes. Run it
+once by hand and they fill in.
+
+**`rules:deploy` fails with "Syntax error in database rules: 3:11".**
+`database.rules.json` is JSON with `//` comments, and every key under `"rules"`
+is a *path* whose value must be an object — an array there is invalid. Run
+`npm run rules:check` to see exactly which key is wrong.
+
+**The rig stopped writing after `rules:deploy:db`.** The write rules closed it
+out, which means it authenticates as a plain client rather than with a service
+account. Either move it onto a service account, or set the `"data"` write rule
+in `database.rules.json` to `true` and redeploy while that happens.
+
+**Vercel refuses to deploy: "Hobby accounts are limited to daily cron jobs."**
+`vercel.json` must use a once-a-day schedule. It already does; if you changed
+it, change it back and put the frequent job in GitHub Actions.

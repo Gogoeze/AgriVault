@@ -133,6 +133,13 @@ async function seedUser(user: SeedUser): Promise<string> {
     uid = created.uid
   }
 
+  // The role has to live in two places, and that is deliberate:
+  //   * on the profile document, where the app reads it
+  //   * as a custom claim on the Auth token, which is the ONLY thing Realtime
+  //     Database rules can check — they cannot query Firestore
+  // Without the claim an admin cannot read the live sensor data at all.
+  await auth.setCustomUserClaims(uid, { role: user.role })
+
   await db.collection("profiles").doc(uid).set(
     {
       role: user.role,
@@ -148,7 +155,7 @@ async function seedUser(user: SeedUser): Promise<string> {
     { merge: true },
   )
 
-  console.log(`  ${user.role.padEnd(6)} ${user.email}`)
+  console.log(`  ${user.role.padEnd(6)} ${user.email}  (claim role=${user.role})`)
   return uid
 }
 
@@ -487,8 +494,12 @@ Done.
   Farmer   amina@agrivault.ng / Farmer@2026
 
 Next:
-  1. firebase deploy --only firestore:rules,firestore:indexes,database
+  1. npm run rules:deploy      publishes Firestore AND database rules
   2. npm run dev
+
+Already signed in? Sign out and back in once. The admin role is baked
+into the Auth token, and a token issued before this run does not carry
+it — which is what makes live sensor readings look empty.
 
 CHANGE THE SEEDED PASSWORDS before anyone else can reach the app.
 `)

@@ -9,8 +9,10 @@ import { EmptyState } from "@/components/ui/table"
 import { useDevices, useFacilityOverview, useThresholds } from "@/features/facility/queries"
 import { ClimateChart } from "@/features/monitoring/climate-chart"
 import { useLiveClimate, useOpenAlerts, useReadingSeries } from "@/features/monitoring/queries"
+import { newestReading, useLiveReadings } from "@/features/monitoring/use-live-readings"
 import { useWithdrawals } from "@/features/withdrawals/queries"
-import { kilograms, percent, relativeDateTime, tonnes } from "@/lib/format"
+import { useAuth } from "@/features/auth/auth-context"
+import { celsius, kilograms, percent, relativeDateTime, tonnes } from "@/lib/format"
 
 export default function AdminDashboardPage() {
   useLiveClimate(true)
@@ -18,6 +20,12 @@ export default function AdminDashboardPage() {
   const { data: overview } = useFacilityOverview()
   const { data: settings } = useThresholds()
   const { data: devices = [] } = useDevices()
+  const { hasAdminClaim } = useAuth()
+
+  // Straight from the sensor database, so the card is current even when the
+  // history sync has not run.
+  const live = useLiveReadings(devices, hasAdminClaim)
+  const newest = newestReading(live.readings)
   const { data: readings = [] } = useReadingSeries(24)
   const { data: alerts = [], isLoading: alertsLoading } = useOpenAlerts(5)
   const { data: withdrawals = [], isLoading: withdrawalsLoading } = useWithdrawals("pending", 5)
@@ -27,7 +35,11 @@ export default function AdminDashboardPage() {
 
   // A rig that has stopped reporting produces no readings, and no readings
   // produces no alerts — which looks exactly like everything being fine. Say so.
-  const offline = devices.filter((device) => !device.online)
+  const liveByDevice = new Map(live.readings.map((reading) => [reading.deviceId, reading]))
+  const offline = devices.filter((device) => {
+    const reading = liveByDevice.get(device.deviceId)
+    return reading ? !reading.isActive || !reading.fresh : !device.online
+  })
 
   return (
     <AppShell nav={adminNav} title="Dashboard" subtitle="Storage overview">
@@ -66,7 +78,11 @@ export default function AdminDashboardPage() {
           <Card>
             <CardHeader
               title="Temperature"
-              description="Last 24 hours, against the configured band"
+              description={
+                newest
+                  ? `Now ${celsius(newest.temperatureC)} · ${percent(newest.humidityPct)} in ${newest.unitCode}`
+                  : "Last 24 hours, against the configured band"
+              }
               action={
                 <Link
                   to="/admin/monitoring"

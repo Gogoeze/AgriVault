@@ -1,5 +1,6 @@
 import { getApp, getApps, initializeApp } from "firebase/app"
 import { getAuth } from "firebase/auth"
+import { getDatabase } from "firebase/database"
 import {
   getFirestore,
   Timestamp,
@@ -14,6 +15,8 @@ import { firebaseConfig } from "@/lib/env"
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig)
 
 export const auth = getAuth(app)
+/** The IoT side. Admin clients subscribe to this for live sensor values. */
+export const rtdb = getDatabase(app)
 export const db = getFirestore(app)
 export const storage = getStorage(app)
 

@@ -16,10 +16,13 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"api/**/*.ts\" \"scripts/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"api/**/*.ts\" \"scripts/**/*.ts\"",
     "seed": "node --experimental-strip-types scripts/seed.ts",
-    "rules:deploy": "npx -y firebase-tools deploy --only firestore:rules,firestore:indexes,database",
+    "rules:deploy": "npm run rules:check && npx -y firebase-tools deploy --only firestore:rules,firestore:indexes",
     "emails:auth": "node --experimental-strip-types scripts/build-auth-templates.ts",
     "emulators": "npx -y firebase-tools emulators:start --only firestore,auth,database",
-    "deploy": "npx -y vercel --prod"
+    "deploy": "npx -y vercel --prod",
+    "set-admin": "node --experimental-strip-types scripts/set-admin.ts",
+    "rules:check": "node --experimental-strip-types scripts/check-rules.ts",
+    "rules:deploy:db": "npm run rules:check && npx -y firebase-tools deploy --only database"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",

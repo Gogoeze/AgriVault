@@ -19,6 +19,13 @@ export interface AuthState {
   isAdmin: boolean
   /** Firebase Auth's own flag. Unverified farmers are held at the gate. */
   emailVerified: boolean
+  /**
+   * Whether the ID token carries role=admin. Separate from `isAdmin`, which
+   * reads the profile document: Realtime Database rules can only see the
+   * claim, so an admin whose token predates it can use the app but cannot
+   * read live sensor data until they sign in again.
+   */
+  hasAdminClaim: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (input: SignUpInput) => Promise<{ needsVerification: boolean }>
   resendVerification: () => Promise<void>
